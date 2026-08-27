@@ -28,22 +28,22 @@ def _fix_database_url(url: str) -> dict:
     """
     Fix DATABASE_URL for asyncpg compatibility.
     
-    Neon/Supabase URLs include ?sslmode=require, but asyncpg
-    doesn't accept 'sslmode' as a query param. We need to:
-    1. Strip sslmode from the URL
-    2. Pass ssl=True as a connect_arg instead
+    Neon/Supabase URLs include query params like:
+        ?sslmode=require&channel_binding=require
+    
+    asyncpg doesn't accept ANY of these as URL query params.
+    We strip them ALL and pass ssl=True via connect_args.
     """
     parsed = urlparse(url)
     query_params = parse_qs(parsed.query)
     
+    # Check if SSL is needed before stripping
     needs_ssl = False
     if "sslmode" in query_params:
         needs_ssl = query_params["sslmode"][0] in ("require", "verify-full", "verify-ca")
-        del query_params["sslmode"]
     
-    # Rebuild URL without sslmode
-    clean_query = urlencode(query_params, doseq=True)
-    clean_url = urlunparse(parsed._replace(query=clean_query))
+    # Strip ALL query params — asyncpg doesn't accept them via URL
+    clean_url = urlunparse(parsed._replace(query=""))
     
     connect_args = {}
     if needs_ssl:
