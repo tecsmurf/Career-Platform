@@ -15,25 +15,59 @@ Flow:
         ↓
     PostgreSQL
 """
+import ssl as ssl_module
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 
 from app.core.config import settings
 
+
+def _fix_database_url(url: str) -> dict:
+    """
+    Fix DATABASE_URL for asyncpg compatibility.
+    
+    Neon/Supabase URLs include ?sslmode=require, but asyncpg
+    doesn't accept 'sslmode' as a query param. We need to:
+    1. Strip sslmode from the URL
+    2. Pass ssl=True as a connect_arg instead
+    """
+    parsed = urlparse(url)
+    query_params = parse_qs(parsed.query)
+    
+    needs_ssl = False
+    if "sslmode" in query_params:
+        needs_ssl = query_params["sslmode"][0] in ("require", "verify-full", "verify-ca")
+        del query_params["sslmode"]
+    
+    # Rebuild URL without sslmode
+    clean_query = urlencode(query_params, doseq=True)
+    clean_url = urlunparse(parsed._replace(query=clean_query))
+    
+    connect_args = {}
+    if needs_ssl:
+        connect_args["ssl"] = True
+    
+    return {"url": clean_url, "connect_args": connect_args}
+
+
+db_config = _fix_database_url(settings.DATABASE_URL)
+
 # Create the async engine — this is the connection pool to PostgreSQL
-# echo=True logs all SQL queries (useful for debugging, disable in production)
 engine = create_async_engine(
-    settings.DATABASE_URL,
+    db_config["url"],
     echo=settings.DEBUG,
-    pool_size=5,          # Keep 5 connections ready
-    max_overflow=10,      # Allow up to 10 more under load
+    pool_size=3,
+    max_overflow=5,
+    connect_args=db_config["connect_args"],
 )
 
 # Session factory — creates new database sessions
 async_session = async_sessionmaker(
     engine,
     class_=AsyncSession,
-    expire_on_commit=False,  # Don't expire objects after commit
+    expire_on_commit=False,
 )
 
 
