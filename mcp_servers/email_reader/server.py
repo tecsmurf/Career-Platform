@@ -411,8 +411,16 @@ def _scan_job_emails(days_back: int, count: int) -> list[dict]:
 # RUN SERVER
 # ============================================================
 async def main():
+    from mcp.server import InitializationOptions
     async with stdio_server() as (read_stream, write_stream):
-        await server.run(read_stream, write_stream)
+        await server.run(
+            read_stream,
+            write_stream,
+            InitializationOptions(
+                server_name="email-reader",
+                server_version="1.0.0",
+            ),
+        )
 
 if __name__ == "__main__":
     asyncio.run(main())
