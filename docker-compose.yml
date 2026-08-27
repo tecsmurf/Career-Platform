@@ -39,7 +39,7 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://neondb_owner:npg_xQF27JiNScZs@ep-billowing-water-b3s5r0qy-pooler.c-4.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
-      SECRET_KEY: docker-dev-secret-key-change-in-production
+      SECRET_KEY: a2jO6e-Xf5ErlrHneorcRwgct8PJFBbpMC6wmyw_GpSBi6DOMRogxouuc4dHLUPOFQXsyOpYmLfGoy74v420PQ
       DEBUG: "true"
     depends_on:
       db:
