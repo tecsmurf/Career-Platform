@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
-import { jobsAPI, emailAPI } from '../api';
+import { jobsAPI, emailAPI, authAPI } from '../api';
 import JobForm from '../components/JobForm';
 import JobCard from '../components/JobCard';
 
@@ -19,6 +19,13 @@ export default function DashboardPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
+
+  // Email settings state
+  const [showEmailSettings, setShowEmailSettings] = useState(false);
+  const [emailSettings, setEmailSettings] = useState({ email_user: '', email_app_password: '', email_host: 'imap.gmail.com' });
+  const [emailConfigured, setEmailConfigured] = useState(false);
+  const [savingEmail, setSavingEmail] = useState(false);
+  const [emailMsg, setEmailMsg] = useState('');
 
   const fetchJobs = async () => {
     setLoading(true);
@@ -45,8 +52,20 @@ export default function DashboardPage() {
     }
   };
 
+  const fetchEmailSettings = async () => {
+    try {
+      const res = await authAPI.getEmailSettings();
+      setEmailConfigured(res.data.is_configured);
+      if (res.data.email_user) {
+        setEmailSettings(prev => ({ ...prev, email_user: res.data.email_user, email_host: res.data.email_host }));
+      }
+    } catch (err) {
+      console.error('Failed to load email settings', err);
+    }
+  };
+
   useEffect(() => { fetchJobs(); }, [filter, search, page]);
-  useEffect(() => { fetchStats(); }, []);
+  useEffect(() => { fetchStats(); fetchEmailSettings(); }, []);
 
   const handleCreate = async (data) => {
     await jobsAPI.create(data);
@@ -70,6 +89,10 @@ export default function DashboardPage() {
   };
 
   const handleEmailSync = async () => {
+    if (!emailConfigured) {
+      setShowEmailSettings(true);
+      return;
+    }
     setSyncing(true);
     setSyncResult(null);
     try {
@@ -80,9 +103,25 @@ export default function DashboardPage() {
         fetchStats();
       }
     } catch (err) {
-      setSyncResult({ message: err.response?.data?.detail || 'Sync failed. Check email settings in .env' });
+      setSyncResult({ message: err.response?.data?.detail || 'Sync failed. Check email settings.' });
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const handleSaveEmailSettings = async (e) => {
+    e.preventDefault();
+    setSavingEmail(true);
+    setEmailMsg('');
+    try {
+      await authAPI.saveEmailSettings(emailSettings);
+      setEmailConfigured(true);
+      setEmailMsg('✅ Email connected successfully!');
+      setTimeout(() => { setShowEmailSettings(false); setEmailMsg(''); }, 1500);
+    } catch (err) {
+      setEmailMsg('❌ ' + (err.response?.data?.detail || 'Failed to save settings'));
+    } finally {
+      setSavingEmail(false);
     }
   };
 
@@ -95,6 +134,9 @@ export default function DashboardPage() {
         </div>
         <div className="header-right">
           <span className="user-name">{user?.full_name}</span>
+          <button onClick={() => setShowEmailSettings(true)} className="btn btn-ghost" title="Email Settings">
+            ⚙️
+          </button>
           <button onClick={logout} className="btn btn-ghost">Logout</button>
         </div>
       </header>
@@ -139,7 +181,7 @@ export default function DashboardPage() {
         </div>
         <div className="toolbar-buttons">
           <button onClick={handleEmailSync} className="btn btn-ghost" disabled={syncing}>
-            {syncing ? '📧 Syncing...' : '📧 Sync Emails'}
+            {syncing ? '📧 Syncing...' : emailConfigured ? '📧 Sync Emails' : '📧 Connect Email'}
           </button>
           <button onClick={() => { setShowForm(true); setEditingJob(null); }} className="btn btn-primary">
             + Add Job
@@ -161,6 +203,63 @@ export default function DashboardPage() {
             </ul>
           )}
           <button onClick={() => setSyncResult(null)} className="btn-icon">✕</button>
+        </div>
+      )}
+
+      {/* Email Settings Modal */}
+      {showEmailSettings && (
+        <div className="modal-overlay" onClick={() => { setShowEmailSettings(false); setEmailMsg(''); }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>📧 Email Settings</h2>
+            <p style={{ color: '#94a3b8', fontSize: '0.9rem', marginBottom: '1rem' }}>
+              Connect your Gmail to auto-sync job application updates.
+              Each user connects their own email — your credentials are stored securely.
+            </p>
+
+            <div style={{ background: '#1e293b', borderRadius: '8px', padding: '1rem', marginBottom: '1.5rem', fontSize: '0.85rem', color: '#94a3b8' }}>
+              <strong style={{ color: '#f59e0b' }}>How to get a Gmail App Password:</strong>
+              <ol style={{ margin: '0.5rem 0 0 1.2rem', lineHeight: '1.8' }}>
+                <li>Go to <a href="https://myaccount.google.com/security" target="_blank" rel="noreferrer" style={{ color: '#818cf8' }}>myaccount.google.com → Security</a></li>
+                <li>Enable <strong>2-Step Verification</strong></li>
+                <li>Search for <strong>"App Passwords"</strong> and generate one</li>
+                <li>Paste the 16-character password below</li>
+              </ol>
+            </div>
+
+            <form onSubmit={handleSaveEmailSettings}>
+              <div className="form-group">
+                <label>Gmail Address</label>
+                <input
+                  type="email"
+                  value={emailSettings.email_user}
+                  onChange={(e) => setEmailSettings({ ...emailSettings, email_user: e.target.value })}
+                  placeholder="your-email@gmail.com"
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>App Password</label>
+                <input
+                  type="password"
+                  value={emailSettings.email_app_password}
+                  onChange={(e) => setEmailSettings({ ...emailSettings, email_app_password: e.target.value })}
+                  placeholder="xxxx xxxx xxxx xxxx"
+                  required
+                />
+              </div>
+              {emailMsg && (
+                <div style={{ padding: '0.75rem', borderRadius: '6px', marginBottom: '1rem', background: emailMsg.startsWith('✅') ? '#065f4620' : '#7f1d1d20', color: emailMsg.startsWith('✅') ? '#10b981' : '#ef4444' }}>
+                  {emailMsg}
+                </div>
+              )}
+              <div className="form-actions">
+                <button type="button" onClick={() => { setShowEmailSettings(false); setEmailMsg(''); }} className="btn btn-ghost">Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={savingEmail}>
+                  {savingEmail ? 'Saving...' : emailConfigured ? 'Update Settings' : 'Connect Gmail'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 

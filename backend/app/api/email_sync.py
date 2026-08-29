@@ -41,24 +41,19 @@ class SyncResult(BaseModel):
     message: str
 
 
-async def _call_email_mcp_server(days_back: int, max_emails: int) -> dict:
+async def _call_email_mcp_server(email_host: str, email_user: str, email_password: str, days_back: int, max_emails: int) -> dict:
     """
     Connect to the Email MCP Server and call scan_job_emails.
     
-    This demonstrates the MCP client-server pattern:
-    1. Start the MCP server as a subprocess
-    2. Initialize the MCP session
-    3. Call a tool by name
-    4. Get the result
-    5. Disconnect
+    Uses per-user credentials passed from the database.
     """
     server_params = StdioServerParameters(
         command="python",
         args=["mcp_servers/email_reader/server.py"],
         env={
-            "EMAIL_HOST": settings.EMAIL_HOST,
-            "EMAIL_USER": settings.EMAIL_USER,
-            "EMAIL_PASSWORD": settings.EMAIL_PASSWORD,
+            "EMAIL_HOST": email_host,
+            "EMAIL_USER": email_user,
+            "EMAIL_PASSWORD": email_password,
         },
     )
     
@@ -89,22 +84,28 @@ async def sync_emails(
     """
     Scan your email inbox for job-related updates and auto-update job statuses.
     
-    This:
-    1. Connects to your email via the Email MCP Server
-    2. Scans for job-related emails (interviews, offers, rejections)
-    3. Matches emails to your jobs in the database
-    4. Updates job statuses automatically
-    
-    Only forward progressions are applied (applied → interviewing → offer).
-    Rejected/withdrawn are terminal states.
+    Each user connects their own Gmail via Settings → Email Settings.
     """
+    # Check if user has configured email
+    if not current_user.has_email_configured:
+        raise HTTPException(
+            status_code=400,
+            detail="Email not configured. Go to Settings → Email Settings to connect your Gmail.",
+        )
+
     try:
-        # Step 1: Call Email MCP Server
-        scan_result = await _call_email_mcp_server(req.days_back, req.max_emails)
+        # Step 1: Call Email MCP Server with THIS user's credentials
+        scan_result = await _call_email_mcp_server(
+            email_host=current_user.email_host or "imap.gmail.com",
+            email_user=current_user.email_user,
+            email_password=current_user.email_app_password,
+            days_back=req.days_back,
+            max_emails=req.max_emails,
+        )
     except Exception as e:
         raise HTTPException(
             status_code=503,
-            detail=f"Failed to connect to email: {str(e)}. Make sure EMAIL_USER and EMAIL_PASSWORD are set in .env",
+            detail=f"Failed to connect to email: {str(e)}. Check your email settings.",
         )
     
     job_emails = scan_result.get("job_emails", [])
@@ -136,11 +137,18 @@ async def preview_sync(
 ):
     """
     Dry run — shows what WOULD be updated without making changes.
-    
-    Use this to verify before running the actual sync.
     """
+    if not current_user.has_email_configured:
+        raise HTTPException(400, "Email not configured. Go to Settings → Email Settings to connect your Gmail.")
+
     try:
-        scan_result = await _call_email_mcp_server(req.days_back, req.max_emails)
+        scan_result = await _call_email_mcp_server(
+            email_host=current_user.email_host or "imap.gmail.com",
+            email_user=current_user.email_user,
+            email_password=current_user.email_app_password,
+            days_back=req.days_back,
+            max_emails=req.max_emails,
+        )
     except Exception as e:
         raise HTTPException(503, f"Email connection failed: {str(e)}")
     
@@ -161,3 +169,4 @@ async def preview_sync(
         ],
         "message": "Preview only — no changes made. Use POST /api/email/sync to apply.",
     }
+

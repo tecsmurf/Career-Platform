@@ -40,6 +40,8 @@ export const authAPI = {
     });
   },
   getMe: () => api.get('/auth/me'),
+  getEmailSettings: () => api.get('/auth/email-settings'),
+  saveEmailSettings: (data) => api.put('/auth/email-settings', data),
 };
 
 // Job endpoints
@@ -59,3 +61,4 @@ export const emailAPI = {
 };
 
 export default api;
+
