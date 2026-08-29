@@ -19,6 +19,7 @@ from app.api.auth import get_current_user
 from app.database import get_db
 from app.models.models import User
 from app.services.email_sync_service import auto_update_jobs_from_emails
+from app.core.encryption import decrypt
 
 # Import MCP client tools
 from mcp.client.session import ClientSession
@@ -98,7 +99,7 @@ async def sync_emails(
         scan_result = await _call_email_mcp_server(
             email_host=current_user.email_host or "imap.gmail.com",
             email_user=current_user.email_user,
-            email_password=current_user.email_app_password,
+            email_password=decrypt(current_user.email_app_password),
             days_back=req.days_back,
             max_emails=req.max_emails,
         )
@@ -145,7 +146,7 @@ async def preview_sync(
         scan_result = await _call_email_mcp_server(
             email_host=current_user.email_host or "imap.gmail.com",
             email_user=current_user.email_user,
-            email_password=current_user.email_app_password,
+            email_password=decrypt(current_user.email_app_password),
             days_back=req.days_back,
             max_emails=req.max_emails,
         )

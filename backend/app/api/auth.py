@@ -102,10 +102,11 @@ async def save_email_settings(
     current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Save Gmail credentials for email sync (per-user)."""
+    """Save Gmail credentials for email sync (per-user). Password is encrypted."""
+    from app.core.encryption import encrypt
     current_user.email_host = settings_data.email_host
     current_user.email_user = settings_data.email_user
-    current_user.email_app_password = settings_data.email_app_password
+    current_user.email_app_password = encrypt(settings_data.email_app_password)
     db.add(current_user)
     await db.flush()
     return EmailSettingsResponse(
