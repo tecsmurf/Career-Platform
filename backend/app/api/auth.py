@@ -1,20 +1,22 @@
 """
-Authentication Endpoints — Register, Login, Get Profile
-========================================================
+Authentication Endpoints — Register, Login, Get Profile, Email Settings
+========================================================================
 
 Now uses PostgreSQL via SQLAlchemy instead of in-memory dicts.
 
 Flow:
-    POST /api/auth/register → hash password → store in PostgreSQL → return JWT
-    POST /api/auth/login    → find user → verify password → return JWT
-    GET  /api/auth/me       → decode JWT → fetch user from DB → return profile
+    POST /api/auth/register        → hash password → store in PostgreSQL → return JWT
+    POST /api/auth/login           → find user → verify password → return JWT
+    GET  /api/auth/me              → decode JWT → fetch user from DB → return profile
+    PUT  /api/auth/email-settings  → save per-user Gmail credentials
+    GET  /api/auth/email-settings  → get email settings (no password)
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.schemas.user import UserCreate, UserResponse, Token
+from app.schemas.user import UserCreate, UserResponse, Token, EmailSettingsSave, EmailSettingsResponse
 from app.services import auth_service
 
 router = APIRouter()
@@ -90,4 +92,35 @@ async def get_me(current_user=Depends(get_current_user)):
         email=current_user.email,
         full_name=current_user.full_name,
         created_at=current_user.created_at.isoformat(),
+        has_email_configured=current_user.has_email_configured,
     )
+
+
+@router.put("/email-settings", response_model=EmailSettingsResponse)
+async def save_email_settings(
+    settings_data: EmailSettingsSave,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Save Gmail credentials for email sync (per-user)."""
+    current_user.email_host = settings_data.email_host
+    current_user.email_user = settings_data.email_user
+    current_user.email_app_password = settings_data.email_app_password
+    db.add(current_user)
+    await db.flush()
+    return EmailSettingsResponse(
+        email_user=current_user.email_user,
+        email_host=current_user.email_host,
+        is_configured=True,
+    )
+
+
+@router.get("/email-settings", response_model=EmailSettingsResponse)
+async def get_email_settings(current_user=Depends(get_current_user)):
+    """Get current email settings (password is never returned)."""
+    return EmailSettingsResponse(
+        email_user=current_user.email_user,
+        email_host=current_user.email_host or "imap.gmail.com",
+        is_configured=current_user.has_email_configured,
+    )
+
