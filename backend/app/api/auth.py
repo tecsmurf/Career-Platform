@@ -113,8 +113,27 @@ async def save_email_settings(
     current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Save Gmail credentials for email sync (per-user). Password is encrypted."""
+    """Save Gmail credentials for email sync (per-user). Tests connection first."""
+    import imaplib
     from app.core.encryption import encrypt
+
+    # Test the connection BEFORE saving
+    try:
+        mail = imaplib.IMAP4_SSL(settings_data.email_host)
+        mail.login(settings_data.email_user, settings_data.email_app_password)
+        mail.logout()
+    except imaplib.IMAP4.error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Login failed. Check your email and app password. Make sure you're using a Gmail App Password, not your regular password.",
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Could not connect to {settings_data.email_host}: {str(e)}",
+        )
+
+    # Connection works — save encrypted credentials
     current_user.email_host = settings_data.email_host
     current_user.email_user = settings_data.email_user
     current_user.email_app_password = encrypt(settings_data.email_app_password)
