@@ -52,6 +52,17 @@ async def get_current_user(
 @router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED)
 async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
     """Register a new user account."""
+    # Verify the email domain has real mail servers (blocks fake domains)
+    import dns.resolver
+    domain = user_data.email.split("@")[-1]
+    try:
+        dns.resolver.resolve(domain, "MX")
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid email domain '{domain}'. Use a real email address.",
+        )
+
     existing = await auth_service.get_user_by_email(db, user_data.email)
     if existing:
         raise HTTPException(
