@@ -134,9 +134,6 @@ export default function DashboardPage() {
         </div>
         <div className="header-right">
           <span className="user-name">{user?.full_name}</span>
-          <button onClick={() => setShowEmailSettings(true)} className="btn btn-ghost" title="Email Settings">
-            ⚙️
-          </button>
           <button onClick={logout} className="btn btn-ghost">Logout</button>
         </div>
       </header>
@@ -180,8 +177,8 @@ export default function DashboardPage() {
           </div>
         </div>
         <div className="toolbar-buttons">
-          <button onClick={handleEmailSync} className="btn btn-ghost" disabled={syncing}>
-            {syncing ? '📧 Syncing...' : emailConfigured ? '📧 Sync Emails' : '📧 Connect Email'}
+          <button className="btn btn-ghost" disabled title="Email sync coming soon">
+            📧 Email Sync — Coming Soon
           </button>
           <button onClick={() => { setShowForm(true); setEditingJob(null); }} className="btn btn-primary">
             + Add Job
