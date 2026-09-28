@@ -11,8 +11,10 @@ Why separate?
 - Services handle business logic (hashing, token creation, validation)
 - This makes testing easier — you can test business logic without HTTP
 """
+import asyncio
 from datetime import datetime, timedelta, timezone
 
+import dns.resolver
 from jose import JWTError, jwt
 import bcrypt
 from sqlalchemy import select
@@ -27,7 +29,11 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+    try:
+        return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+    except (ValueError, TypeError):
+        # Malformed stored hash — treat as a failed login rather than a 500.
+        return False
 
 
 def create_access_token(data: dict, expires_minutes: int = None) -> str:
@@ -47,6 +53,55 @@ def decode_token(token: str) -> dict | None:
         return None
 
 
+# ---------------------------------------------------------------------------
+# Email-domain validation
+# ---------------------------------------------------------------------------
+def _domain_deliverable_sync(domain: str) -> bool:
+    """
+    Return True if `domain` can plausibly receive email.
+
+    Policy:
+    - MX records present            -> deliverable (True)
+    - No MX but A/AAAA present      -> deliverable per RFC 5321 fallback (True)
+    - Domain does not exist (NXDOMAIN) -> reject (False)
+    - Resolver timeout / no nameservers / other infra error -> FAIL OPEN (True)
+
+    Failing open on infra errors means a transient DNS problem never blocks a
+    legitimate signup; we only reject domains we can positively prove are fake.
+    """
+    if not domain or "." not in domain:
+        return False
+
+    resolver = dns.resolver.Resolver()
+    resolver.timeout = 5.0
+    resolver.lifetime = 5.0
+
+    try:
+        answers = resolver.resolve(domain, "MX")
+        return len(answers) > 0
+    except dns.resolver.NoAnswer:
+        for rtype in ("A", "AAAA"):
+            try:
+                if resolver.resolve(domain, rtype):
+                    return True
+            except Exception:
+                continue
+        return False
+    except dns.resolver.NXDOMAIN:
+        return False
+    except Exception:
+        # Timeout, NoNameservers, network error, etc. — don't punish the user.
+        return True
+
+
+async def email_domain_deliverable(domain: str) -> bool:
+    """Async wrapper: run the blocking DNS lookup off the event loop."""
+    return await asyncio.to_thread(_domain_deliverable_sync, domain)
+
+
+# ---------------------------------------------------------------------------
+# User queries
+# ---------------------------------------------------------------------------
 async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
     result = await db.execute(select(User).where(User.email == email))
     return result.scalar_one_or_none()

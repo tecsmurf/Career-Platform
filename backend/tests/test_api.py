@@ -152,7 +152,7 @@ class TestJobs:
 
     async def test_filter_by_status(self, auth_client: AsyncClient):
         await auth_client.post("/api/jobs", json={"company": "A", "position": "X", "status": "applied"})
-        await auth_client.post("/api/jobs", json={"company": "B", "position": "Y", "status": "interviewing"})
+        await auth_client.post("/api/jobs", json={"company": "B", "position": "Y", "status": "interview"})
 
         res = await auth_client.get("/api/jobs", params={"status": "applied"})
         assert res.json()["total"] == 1
@@ -169,9 +169,9 @@ class TestJobs:
         create_res = await auth_client.post("/api/jobs", json={"company": "Google", "position": "SWE"})
         job_id = create_res.json()["id"]
 
-        res = await auth_client.put(f"/api/jobs/{job_id}", json={"status": "interviewing"})
+        res = await auth_client.put(f"/api/jobs/{job_id}", json={"status": "interview"})
         assert res.status_code == 200
-        assert res.json()["status"] == "interviewing"
+        assert res.json()["status"] == "interview"
 
     async def test_delete_job(self, auth_client: AsyncClient):
         create_res = await auth_client.post("/api/jobs", json={"company": "Google", "position": "SWE"})
@@ -219,3 +219,63 @@ class TestHealth:
         res = await client.get("/")
         assert res.status_code == 200
         assert "AI Career Platform" in res.json()["app"]
+
+
+# ============================================================
+# Security / Validation Tests
+# ============================================================
+class TestSecurityAndValidation:
+    async def test_invalid_email_domain_rejected(self, client: AsyncClient, monkeypatch):
+        from app.services import auth_service
+
+        async def _reject(domain: str) -> bool:
+            return False
+
+        monkeypatch.setattr(auth_service, "email_domain_deliverable", _reject)
+        res = await client.post("/api/auth/register", json={
+            "email": "nobody@totally-fake-domain.invalid",
+            "password": "pass123",
+            "full_name": "Nope",
+        })
+        assert res.status_code == 400
+
+    async def test_invalid_status_rejected(self, auth_client: AsyncClient):
+        res = await auth_client.post("/api/jobs", json={
+            "company": "Google", "position": "SWE", "status": "banana",
+        })
+        assert res.status_code == 422
+
+    async def test_saved_status_allowed(self, auth_client: AsyncClient):
+        res = await auth_client.post("/api/jobs", json={
+            "company": "Google", "position": "SWE", "status": "saved",
+        })
+        assert res.status_code == 201
+        assert res.json()["status"] == "saved"
+
+    async def test_salary_min_greater_than_max_rejected(self, auth_client: AsyncClient):
+        res = await auth_client.post("/api/jobs", json={
+            "company": "Google", "position": "SWE",
+            "salary_min": 200000, "salary_max": 100000,
+        })
+        assert res.status_code == 422
+
+    async def test_update_can_clear_nullable_field(self, auth_client: AsyncClient):
+        create_res = await auth_client.post("/api/jobs", json={
+            "company": "Google", "position": "SWE", "notes": "phone screen booked",
+        })
+        job_id = create_res.json()["id"]
+        res = await auth_client.put(f"/api/jobs/{job_id}", json={"notes": None})
+        assert res.status_code == 200
+        assert res.json()["notes"] is None
+
+    async def test_expired_token_rejected(self, client: AsyncClient):
+        from app.services import auth_service
+        token = auth_service.create_access_token(
+            {"sub": "x@example.com", "user_id": 1}, expires_minutes=-1
+        )
+        res = await client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+        assert res.status_code == 401
+
+    async def test_garbage_token_rejected(self, client: AsyncClient):
+        res = await client.get("/api/auth/me", headers={"Authorization": "Bearer not.a.jwt"})
+        assert res.status_code == 401

@@ -101,7 +101,7 @@ def parse_email(raw_email: bytes) -> dict:
 # ============================================================
 # Keywords that indicate job-related emails and their likely status
 JOB_SIGNAL_PATTERNS = {
-    "interviewing": [
+    "interview": [
         r"schedule.*interview",
         r"interview.*invite",
         r"like to (schedule|set up|arrange).*call",

@@ -2,19 +2,23 @@
 Authentication Endpoints — Register, Login, Get Profile, Email Settings
 ========================================================================
 
-Now uses PostgreSQL via SQLAlchemy instead of in-memory dicts.
-
 Flow:
-    POST /api/auth/register        → hash password → store in PostgreSQL → return JWT
+    POST /api/auth/register        → validate domain → hash password → store → return JWT
     POST /api/auth/login           → find user → verify password → return JWT
     GET  /api/auth/me              → decode JWT → fetch user from DB → return profile
-    PUT  /api/auth/email-settings  → save per-user Gmail credentials
+    PUT  /api/auth/email-settings  → save per-user Gmail credentials (IMAP-verified)
     GET  /api/auth/email-settings  → get email settings (no password)
 """
+import asyncio
+import imaplib
+import ipaddress
+import socket
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.encryption import encrypt
 from app.database import get_db
 from app.schemas.user import UserCreate, UserResponse, Token, EmailSettingsSave, EmailSettingsResponse
 from app.services import auth_service
@@ -22,12 +26,14 @@ from app.services import auth_service
 router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
+IMAP_CONNECT_TIMEOUT = 10  # seconds
+
 
 async def get_current_user(
     token: str = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db),
 ):
-    """Dependency: extract and validate the current user from JWT token."""
+    """Dependency: extract and validate the current user from the JWT token."""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid or expired token",
@@ -46,18 +52,19 @@ async def get_current_user(
     if user is None:
         raise credentials_exception
 
+    # Deactivated accounts must not be able to use existing tokens.
+    if not getattr(user, "is_active", True):
+        raise credentials_exception
+
     return user
 
 
 @router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED)
 async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
     """Register a new user account."""
-    # Verify the email domain has real mail servers (blocks fake domains)
-    import dns.resolver
-    domain = user_data.email.split("@")[-1]
-    try:
-        dns.resolver.resolve(domain, "MX")
-    except Exception:
+    # Verify the email domain can actually receive mail (blocks fake domains).
+    domain = user_data.email.split("@")[-1].strip().lower()
+    if not await auth_service.email_domain_deliverable(domain):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid email domain '{domain}'. Use a real email address.",
@@ -107,34 +114,87 @@ async def get_me(current_user=Depends(get_current_user)):
     )
 
 
+# ---------------------------------------------------------------------------
+# Email settings (IMAP) — hardened against SSRF and hangs
+# ---------------------------------------------------------------------------
+def _host_is_public(host: str) -> bool:
+    """Resolve `host` and reject private/loopback/link-local/reserved targets.
+
+    Prevents a user-supplied email_host from being used to probe internal
+    infrastructure (SSRF) via the IMAP connection test.
+    """
+    if not host:
+        return False
+    try:
+        infos = socket.getaddrinfo(host, 993, proto=socket.IPPROTO_TCP)
+    except Exception:
+        return False
+    for info in infos:
+        try:
+            ip = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            return False
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            or ip.is_unspecified
+        ):
+            return False
+    return True
+
+
+def _verify_imap_login(host: str, user: str, password: str) -> None:
+    """Blocking IMAP login test (run via asyncio.to_thread)."""
+    mail = imaplib.IMAP4_SSL(host, timeout=IMAP_CONNECT_TIMEOUT)
+    try:
+        mail.login(user, password)
+    finally:
+        try:
+            mail.logout()
+        except Exception:
+            pass
+
+
 @router.put("/email-settings", response_model=EmailSettingsResponse)
 async def save_email_settings(
     settings_data: EmailSettingsSave,
     current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Save Gmail credentials for email sync (per-user). Tests connection first."""
-    import imaplib
-    from app.core.encryption import encrypt
+    """Save Gmail credentials for email sync (per-user). Verifies IMAP first."""
+    host = (settings_data.email_host or "imap.gmail.com").strip()
 
-    # Test the connection BEFORE saving
+    if not await asyncio.to_thread(_host_is_public, host):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or disallowed email host.",
+        )
+
+    # Test the connection BEFORE saving (off the event loop, with a timeout).
     try:
-        mail = imaplib.IMAP4_SSL(settings_data.email_host)
-        mail.login(settings_data.email_user, settings_data.email_app_password)
-        mail.logout()
+        await asyncio.to_thread(
+            _verify_imap_login, host, settings_data.email_user, settings_data.email_app_password
+        )
     except imaplib.IMAP4.error:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Login failed. Check your email and app password. Make sure you're using a Gmail App Password, not your regular password.",
+            detail=(
+                "Login failed. Check your email and app password. Make sure you're "
+                "using a Gmail App Password, not your regular password."
+            ),
         )
-    except Exception as e:
+    except Exception:
+        # Don't leak internal connection details back to the client.
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Could not connect to {settings_data.email_host}: {str(e)}",
+            detail=f"Could not connect to email host '{host}'.",
         )
 
-    # Connection works — save encrypted credentials
-    current_user.email_host = settings_data.email_host
+    # Connection works — save encrypted credentials.
+    current_user.email_host = host
     current_user.email_user = settings_data.email_user
     current_user.email_app_password = encrypt(settings_data.email_app_password)
     db.add(current_user)
@@ -154,4 +214,3 @@ async def get_email_settings(current_user=Depends(get_current_user)):
         email_host=current_user.email_host or "imap.gmail.com",
         is_configured=current_user.has_email_configured,
     )
-

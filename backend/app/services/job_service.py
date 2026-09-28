@@ -87,12 +87,23 @@ async def list_jobs(
     return jobs, total
 
 
+# Columns that must never be set to NULL via an update.
+_NON_NULLABLE_FIELDS = {"company", "position", "status"}
+
+
 async def update_job(db: AsyncSession, job: Job, update_data: dict) -> Job:
+    """Apply a partial update.
+
+    `update_data` already excludes unset fields (exclude_unset=True at the API
+    layer), so an explicit `None` here means "clear this field". We honour that
+    for nullable columns but skip it for required ones to avoid NOT NULL errors.
+    """
     for field, value in update_data.items():
-        if value is not None:
-            if field == "applied_date" and isinstance(value, str):
-                value = date.fromisoformat(value)
-            setattr(job, field, value)
+        if value is None and field in _NON_NULLABLE_FIELDS:
+            continue
+        if field == "applied_date" and isinstance(value, str):
+            value = date.fromisoformat(value)
+        setattr(job, field, value)
     job.updated_at = datetime.now(timezone.utc)
     await db.flush()
     await db.refresh(job)

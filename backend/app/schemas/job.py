@@ -6,20 +6,36 @@ These schemas enforce that:
 - required fields are present
 - field types are correct
 - field lengths are within bounds
-- default values are applied
+- status is one of the supported values
+- salary_max is not less than salary_min
 
 If a client sends invalid data, FastAPI automatically returns
 422 Unprocessable Entity with details about what's wrong.
 """
+from enum import Enum
 from typing import Optional
-from pydantic import BaseModel, Field
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+class JobStatus(str, Enum):
+    """The only supported job-application statuses."""
+    applied = "applied"
+    interview = "interview"
+    offer = "offer"
+    rejected = "rejected"
+    saved = "saved"
 
 
 class JobCreate(BaseModel):
     """Schema for creating a new job application."""
+    # use_enum_values=True → the parsed field holds the plain string value,
+    # so it serialises and persists as e.g. "applied" (not "JobStatus.applied").
+    model_config = ConfigDict(use_enum_values=True)
+
     company: str = Field(..., min_length=1, max_length=200, examples=["Google"])
     position: str = Field(..., min_length=1, max_length=200, examples=["ML Engineer"])
-    status: Optional[str] = Field("applied", examples=["applied"])
+    status: JobStatus = Field(JobStatus.applied, examples=["applied"])
     job_url: Optional[str] = Field(None, max_length=500, examples=["https://careers.google.com/jobs/123"])
     salary_min: Optional[int] = Field(None, ge=0, examples=[100000])
     salary_max: Optional[int] = Field(None, ge=0, examples=[150000])
@@ -27,18 +43,40 @@ class JobCreate(BaseModel):
     notes: Optional[str] = Field(None, max_length=2000, examples=["Referral from John"])
     applied_date: Optional[str] = Field(None, examples=["2024-01-15"])
 
+    @model_validator(mode="after")
+    def _check_salary(self):
+        if (
+            self.salary_min is not None
+            and self.salary_max is not None
+            and self.salary_max < self.salary_min
+        ):
+            raise ValueError("salary_max must be greater than or equal to salary_min")
+        return self
+
 
 class JobUpdate(BaseModel):
     """Schema for updating a job application. All fields optional."""
+    model_config = ConfigDict(use_enum_values=True)
+
     company: Optional[str] = Field(None, min_length=1, max_length=200)
     position: Optional[str] = Field(None, min_length=1, max_length=200)
-    status: Optional[str] = Field(None)
+    status: Optional[JobStatus] = Field(None)
     job_url: Optional[str] = Field(None, max_length=500)
     salary_min: Optional[int] = Field(None, ge=0)
     salary_max: Optional[int] = Field(None, ge=0)
     location: Optional[str] = Field(None, max_length=200)
     notes: Optional[str] = Field(None, max_length=2000)
     applied_date: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _check_salary(self):
+        if (
+            self.salary_min is not None
+            and self.salary_max is not None
+            and self.salary_max < self.salary_min
+        ):
+            raise ValueError("salary_max must be greater than or equal to salary_min")
+        return self
 
 
 class JobResponse(BaseModel):

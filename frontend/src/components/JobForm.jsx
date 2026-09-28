@@ -1,97 +1,125 @@
 import { useState } from 'react';
+import { STATUSES } from '../constants';
+import { AlertCircle } from './icons';
 
-const STATUS_OPTIONS = ['applied', 'interviewing', 'offer', 'rejected', 'withdrawn'];
+const EMPTY = {
+  company: '', position: '', status: 'applied', location: '',
+  job_url: '', salary_min: '', salary_max: '', applied_date: '', notes: '',
+};
 
 export default function JobForm({ initialData, onSubmit, onCancel }) {
   const [form, setForm] = useState({
-    company: initialData?.company || '',
-    position: initialData?.position || '',
-    status: initialData?.status || 'applied',
-    location: initialData?.location || '',
-    job_url: initialData?.job_url || '',
-    salary_min: initialData?.salary_min || '',
-    salary_max: initialData?.salary_max || '',
-    applied_date: initialData?.applied_date || new Date().toISOString().split('T')[0],
-    notes: initialData?.notes || '',
+    ...EMPTY,
+    applied_date: new Date().toISOString().split('T')[0],
+    ...(initialData
+      ? {
+          company: initialData.company || '',
+          position: initialData.position || '',
+          status: initialData.status || 'applied',
+          location: initialData.location || '',
+          job_url: initialData.job_url || '',
+          salary_min: initialData.salary_min ?? '',
+          salary_max: initialData.salary_max ?? '',
+          applied_date: initialData.applied_date || new Date().toISOString().split('T')[0],
+          notes: initialData.notes || '',
+        }
+      : {}),
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const update = (field) => (e) => setForm({ ...form, [field]: e.target.value });
+  const update = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+
+    const min = form.salary_min === '' ? null : parseInt(form.salary_min, 10);
+    const max = form.salary_max === '' ? null : parseInt(form.salary_max, 10);
+    if (min != null && max != null && max < min) {
+      setError('Maximum salary can’t be lower than the minimum.');
+      return;
+    }
+
     setLoading(true);
     try {
-      const data = { ...form };
-      // Convert empty strings to null for optional fields
-      if (!data.salary_min) data.salary_min = null;
-      else data.salary_min = parseInt(data.salary_min);
-      if (!data.salary_max) data.salary_max = null;
-      else data.salary_max = parseInt(data.salary_max);
-      if (!data.job_url) data.job_url = null;
-      if (!data.location) data.location = null;
-      if (!data.notes) data.notes = null;
-      await onSubmit(data);
+      await onSubmit({
+        company: form.company.trim(),
+        position: form.position.trim(),
+        status: form.status,
+        location: form.location.trim() || null,
+        job_url: form.job_url.trim() || null,
+        salary_min: min,
+        salary_max: max,
+        applied_date: form.applied_date || null,
+        notes: form.notes.trim() || null,
+      });
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to save');
+      setError(err.response?.data?.detail || 'Something went wrong while saving.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <form onSubmit={handleSubmit} className="job-form">
-      {error && <div className="error-msg">{error}</div>}
+    <form onSubmit={handleSubmit} className="auth-form" noValidate>
+      {error && <div className="alert alert-error"><AlertCircle /><span>{error}</span></div>}
+
       <div className="form-row">
-        <div className="form-group">
-          <label>Company *</label>
-          <input type="text" value={form.company} onChange={update('company')} placeholder="Google" required />
+        <div className="field">
+          <label htmlFor="jf-company">Company <span className="req">*</span></label>
+          <input id="jf-company" className="input" value={form.company} onChange={update('company')} placeholder="Google" required />
         </div>
-        <div className="form-group">
-          <label>Position *</label>
-          <input type="text" value={form.position} onChange={update('position')} placeholder="ML Engineer" required />
+        <div className="field">
+          <label htmlFor="jf-position">Position <span className="req">*</span></label>
+          <input id="jf-position" className="input" value={form.position} onChange={update('position')} placeholder="ML Engineer" required />
         </div>
       </div>
+
       <div className="form-row">
-        <div className="form-group">
-          <label>Status</label>
-          <select value={form.status} onChange={update('status')}>
-            {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
+        <div className="field">
+          <label htmlFor="jf-status">Status</label>
+          <select id="jf-status" className="select" value={form.status} onChange={update('status')}>
+            {STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
           </select>
         </div>
-        <div className="form-group">
-          <label>Location</label>
-          <input type="text" value={form.location} onChange={update('location')} placeholder="San Francisco, CA" />
+        <div className="field">
+          <label htmlFor="jf-location">Location</label>
+          <input id="jf-location" className="input" value={form.location} onChange={update('location')} placeholder="San Francisco, CA" />
         </div>
       </div>
+
       <div className="form-row">
-        <div className="form-group">
-          <label>Salary Min ($)</label>
-          <input type="number" value={form.salary_min} onChange={update('salary_min')} placeholder="100000" />
+        <div className="field">
+          <label htmlFor="jf-min">Salary min ($)</label>
+          <input id="jf-min" className="input" type="number" min="0" value={form.salary_min} onChange={update('salary_min')} placeholder="100000" />
         </div>
-        <div className="form-group">
-          <label>Salary Max ($)</label>
-          <input type="number" value={form.salary_max} onChange={update('salary_max')} placeholder="150000" />
+        <div className="field">
+          <label htmlFor="jf-max">Salary max ($)</label>
+          <input id="jf-max" className="input" type="number" min="0" value={form.salary_max} onChange={update('salary_max')} placeholder="150000" />
         </div>
       </div>
-      <div className="form-group">
-        <label>Job URL</label>
-        <input type="url" value={form.job_url} onChange={update('job_url')} placeholder="https://careers.google.com/..." />
+
+      <div className="form-row">
+        <div className="field">
+          <label htmlFor="jf-url">Job URL</label>
+          <input id="jf-url" className="input" type="url" value={form.job_url} onChange={update('job_url')} placeholder="https://careers.google.com/…" />
+        </div>
+        <div className="field">
+          <label htmlFor="jf-date">Applied date</label>
+          <input id="jf-date" className="input" type="date" value={form.applied_date} onChange={update('applied_date')} />
+        </div>
       </div>
-      <div className="form-group">
-        <label>Applied Date</label>
-        <input type="date" value={form.applied_date} onChange={update('applied_date')} />
+
+      <div className="field">
+        <label htmlFor="jf-notes">Notes</label>
+        <textarea id="jf-notes" className="textarea" value={form.notes} onChange={update('notes')} rows={3} placeholder="Referral from Priya · phone screen scheduled for Tuesday…" />
       </div>
-      <div className="form-group">
-        <label>Notes</label>
-        <textarea value={form.notes} onChange={update('notes')} placeholder="Referral from John, phone screen scheduled..." rows={3} />
-      </div>
+
       <div className="form-actions">
-        <button type="button" onClick={onCancel} className="btn btn-ghost">Cancel</button>
+        <button type="button" className="btn btn-ghost" onClick={onCancel}>Cancel</button>
         <button type="submit" className="btn btn-primary" disabled={loading}>
-          {loading ? 'Saving...' : (initialData ? 'Update' : 'Add Job')}
+          {loading ? <span className="spinner" /> : (initialData ? 'Save changes' : 'Add application')}
         </button>
       </div>
     </form>

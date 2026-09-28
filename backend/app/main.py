@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import router as api_router
+from app.core.config import settings
 from app.database import init_db
 
 
@@ -27,13 +28,20 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origin_regex=r"https://.*\.vercel\.app|http://localhost:\d+",
+# CORS: prefer an explicit allow-list of exact origins (set ALLOWED_ORIGINS in
+# the environment). Fall back to the origin regex when none is configured so
+# existing dev/preview deployments keep working.
+cors_kwargs = dict(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+if settings.cors_origins:
+    cors_kwargs["allow_origins"] = settings.cors_origins
+else:
+    cors_kwargs["allow_origin_regex"] = settings.ALLOWED_ORIGIN_REGEX
+
+app.add_middleware(CORSMiddleware, **cors_kwargs)
 
 app.include_router(api_router, prefix="/api")
 

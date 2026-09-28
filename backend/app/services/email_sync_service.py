@@ -31,7 +31,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.models import Job
 from app.core.config import settings
 
-client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+# Lazily construct the OpenAI client so importing this module never requires a
+# configured API key (email sync is opt-in and disabled by default).
+_client: AsyncOpenAI | None = None
+
+
+def _get_client() -> AsyncOpenAI:
+    global _client
+    if _client is None:
+        _client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+    return _client
 
 
 async def match_email_to_job(
@@ -117,7 +126,7 @@ Candidate jobs:
 Return ONLY the Job ID number of the best match, or "none" if no good match.
 Response format: just the number or "none", nothing else."""
 
-    response = await client.chat.completions.create(
+    response = await _get_client().chat.completions.create(
         model=settings.OPENAI_MODEL,
         messages=[{"role": "user", "content": prompt}],
         temperature=0,
@@ -162,14 +171,16 @@ async def auto_update_jobs_from_emails(
     """
     updates = []
     
-    # Status progression — only update if it's a forward progression
+    # Status progression — only update if it's a forward progression.
+    # Uses the canonical status set (applied/interview/offer/rejected/saved).
     STATUS_ORDER = {
-        "applied": 1,
-        "interviewing": 2,
-        "offer": 3,
+        "saved": 1,
+        "applied": 2,
+        "interview": 3,
+        "offer": 4,
         "rejected": 99,  # Terminal state
-        "withdrawn": 99,  # Terminal state
     }
+    VALID_STATUSES = set(STATUS_ORDER)
     
     for email_data in job_emails:
         signal = email_data.get("job_signal", {})
@@ -178,6 +189,10 @@ async def auto_update_jobs_from_emails(
         confidence = signal.get("confidence", "low")
         
         if detected_status in ("unknown", None) or confidence == "low":
+            continue
+
+        # Never write a status outside the canonical set.
+        if detected_status not in VALID_STATUSES:
             continue
         
         # Try to match to a job
