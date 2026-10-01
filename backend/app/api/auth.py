@@ -4,19 +4,20 @@ Authentication Endpoints — Register, Login, Get Profile, Email Settings
 
 Flow:
     POST /api/auth/register        → validate domain → hash password → store → return JWT
-    POST /api/auth/login           → find user → verify password → return JWT
+    POST /api/auth/login           → rate-limit check → find user → verify password → return JWT
     GET  /api/auth/me              → decode JWT → fetch user from DB → return profile
 
 Mailbox (email integration) credentials are a separate system and live under
 /api/email/* — they are never used to authenticate to the platform.
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.schemas.user import UserCreate, UserResponse, Token
 from app.services import auth_service
+from app.services.login_limiter import RATE_LIMITED_DETAIL, client_ip, login_limiter
 
 router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
@@ -79,10 +80,25 @@ async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
 
 @router.post("/login", response_model=Token)
 async def login(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_db),
 ):
-    """Login and receive a JWT token."""
+    """Login and receive a JWT token.
+
+    Every request that reaches credential verification first takes one token
+    from the per-account bucket (and the per-IP bucket). An empty bucket means
+    429 before any database lookup or bcrypt work, with the same response
+    whether or not the account exists.
+    """
+    retry_after = await login_limiter.check(account=form_data.username, ip=client_ip(request))
+    if retry_after is not None:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=RATE_LIMITED_DETAIL,
+            headers={"Retry-After": str(retry_after)},
+        )
+
     user = await auth_service.authenticate_user(db, form_data.username, form_data.password)
     if not user:
         raise HTTPException(

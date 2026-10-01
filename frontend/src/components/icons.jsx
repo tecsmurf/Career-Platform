@@ -50,3 +50,4 @@ export const Lock = (p) => (<svg {...base} {...p}><rect x="4" y="11" width="16" 
 export const ArrowRight = (p) => (<svg {...base} {...p}><path d="M5 12h14M13 6l6 6-6 6" /></svg>);
 export const ChevronDown = (p) => (<svg {...base} {...p}><path d="m6 9 6 6 6-6" /></svg>);
 export const Activity = (p) => (<svg {...base} {...p}><path d="M22 12h-4l-3 9L9 3l-3 9H2" /></svg>);
+export const Bookmark = (p) => (<svg {...base} {...p}><path d="M19 21l-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2Z" /></svg>);

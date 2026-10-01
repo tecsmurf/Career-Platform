@@ -37,8 +37,33 @@ class Settings(BaseSettings):
     ALLOWED_ORIGINS: str = ""
     ALLOWED_ORIGIN_REGEX: str = r"https://.*\.vercel\.app|http://localhost:\d+"
 
-    # Redis (reserved; not currently used)
+    # Redis — only used when RATE_LIMIT_BACKEND=redis.
     REDIS_URL: str = "redis://localhost:6379/0"
+
+    # ---------------------------------------------------------------
+    # Login rate limiting (token buckets — see app/services/login_limiter.py)
+    # ---------------------------------------------------------------
+    LOGIN_RATE_LIMIT_ENABLED: bool = True
+    # Per account (normalised email): burst of 50 attempts, +1 attempt every 1.2 s.
+    LOGIN_BUCKET_CAPACITY: int = 50
+    LOGIN_BUCKET_REFILL_SECONDS: float = 1.2
+    # Secondary per-client-IP bucket (defence in depth against spraying many
+    # accounts from one address). "auto" = on, except in production when no
+    # CLIENT_IP_HEADER is set: behind a proxy every request would share the
+    # proxy's address, so one bucket would throttle all users at once.
+    # "on" forces it (keys on the socket peer if no header is configured).
+    LOGIN_IP_LIMIT: str = "auto"
+    LOGIN_IP_BUCKET_CAPACITY: int = 100
+    LOGIN_IP_BUCKET_REFILL_SECONDS: float = 3.0
+    # Header your edge proxy sets to the real client IP. Only set this when the
+    # proxy OVERWRITES the header (clients could otherwise forge it). On Render,
+    # which sits behind Cloudflare: CF-Connecting-IP.
+    CLIENT_IP_HEADER: str = ""
+    # "memory" — in-process (correct for a single process, e.g. one uvicorn
+    # worker on Render). "redis" — shared across processes/instances; needs
+    # REDIS_URL. If Redis is unreachable, falls back to in-process buckets.
+    RATE_LIMIT_BACKEND: str = "memory"
+    RATE_LIMIT_REDIS_TIMEOUT_SECONDS: float = 0.5
 
     # ---------------------------------------------------------------
     # Email integration
@@ -81,6 +106,31 @@ class Settings(BaseSettings):
     @property
     def email_encryption_keys(self) -> list[str]:
         return [k.strip() for k in self.EMAIL_ENCRYPTION_KEY.split(",") if k.strip()]
+
+    @property
+    def login_ip_limit_active(self) -> bool:
+        mode = self.LOGIN_IP_LIMIT.strip().lower()
+        if mode == "off":
+            return False
+        if mode == "on":
+            return True
+        return not self.is_production or bool(self.CLIENT_IP_HEADER.strip())
+
+    @model_validator(mode="after")
+    def _validate_rate_limits(self):
+        if self.LOGIN_IP_LIMIT.strip().lower() not in {"auto", "on", "off"}:
+            raise ValueError("LOGIN_IP_LIMIT must be one of: auto, on, off.")
+        if self.RATE_LIMIT_BACKEND.strip().lower() not in {"memory", "redis"}:
+            raise ValueError("RATE_LIMIT_BACKEND must be 'memory' or 'redis'.")
+        if self.RATE_LIMIT_BACKEND.strip().lower() == "redis" and not self.REDIS_URL.strip():
+            raise ValueError("RATE_LIMIT_BACKEND=redis requires REDIS_URL.")
+        for name in ("LOGIN_BUCKET_CAPACITY", "LOGIN_IP_BUCKET_CAPACITY"):
+            if getattr(self, name) < 1:
+                raise ValueError(f"{name} must be at least 1.")
+        for name in ("LOGIN_BUCKET_REFILL_SECONDS", "LOGIN_IP_BUCKET_REFILL_SECONDS"):
+            if getattr(self, name) < 0.001:
+                raise ValueError(f"{name} must be positive.")
+        return self
 
     @model_validator(mode="after")
     def _enforce_security(self):

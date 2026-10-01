@@ -1,37 +1,27 @@
-import { Logo, Briefcase, BarChart, Shield } from './icons';
+import { BubbleBackground } from './bubbles';
+import { AUTH_BUBBLES } from '../lib/companies';
+import { Logo, Shield } from './icons';
 
-const FEATURES = [
-  { icon: Briefcase, text: 'Track every application in one organized place' },
-  { icon: BarChart, text: 'See your pipeline and stats at a glance' },
-  { icon: Shield, text: 'Private by default — your data stays yours' },
-];
-
+/**
+ * Login / register layout: a centred card floating in a field of 3D company
+ * bubbles. The bubbles are decoration only (behind the card, no pointer
+ * events, hidden from assistive tech); the form stays the focus.
+ */
 export default function AuthShell({ children }) {
   return (
-    <div className="auth">
-      <aside className="auth__brandpane">
-        <div className="brand" style={{ position: 'relative', zIndex: 1 }}>
+    <div className="auth" data-bubble-pass="">
+      <BubbleBackground companies={AUTH_BUBBLES} density="dense" />
+
+      <main className="auth__main" data-bubble-pass="">
+        <div className="auth__brand">
           <span className="brand__mark"><Logo /></span>
           <span className="brand__name">Career<b>Platform</b></span>
+          <span className="auth__tagline">Every application, interview and offer — in one place.</span>
         </div>
 
-        <div className="auth__tagline">
-          <h2>Run your job search like a <span>product</span>.</h2>
-          <p>A focused workspace to track applications, follow up on time, and know exactly where every opportunity stands.</p>
-          <div className="auth__features">
-            {FEATURES.map((f, i) => (
-              <div className="auth__feature" key={i}>
-                <span className="fi"><f.icon /></span>{f.text}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="auth__foot">© {new Date().getFullYear()} Career Platform</div>
-      </aside>
-
-      <main className="auth__formpane">
         <div className="auth-card">{children}</div>
+
+        <p className="auth__foot"><Shield /> Private by default — your data stays yours.</p>
       </main>
     </div>
   );

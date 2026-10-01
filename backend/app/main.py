@@ -38,6 +38,9 @@ cors_kwargs = dict(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Retry-After is not a CORS-safelisted header: without this the browser
+    # hides it from the (cross-origin) frontend on 429 responses.
+    expose_headers=["Retry-After"],
 )
 if settings.cors_origins:
     cors_kwargs["allow_origins"] = settings.cors_origins

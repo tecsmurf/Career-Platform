@@ -1,4 +1,5 @@
 import StatusBadge from './StatusBadge';
+import { CompanyBubble } from './bubbles';
 import { STATUS_COLOR } from '../constants';
 import { Edit, Trash, MapPin, Money, Calendar, LinkIcon } from './icons';
 
@@ -17,15 +18,19 @@ export default function JobCard({ job, onEdit, onDelete }) {
   return (
     <article className="job" style={{ '--job-accent': accent }}>
       <div className="job__head">
-        <StatusBadge status={job.status} />
+        {/* one small glass accent: the company's logo (or initials) */}
+        <CompanyBubble name={job.company} size={42} compact still />
+        <div className="job__title">
+          <h3 className="job__pos">{job.position}</h3>
+          <div className="job__co">{job.company}</div>
+        </div>
         <div className="job__actions">
           <button className="icon-btn" onClick={onEdit} aria-label={`Edit ${job.position} at ${job.company}`}><Edit /></button>
           <button className="icon-btn danger" onClick={onDelete} aria-label={`Delete ${job.position} at ${job.company}`}><Trash /></button>
         </div>
       </div>
 
-      <h3 className="job__pos">{job.position}</h3>
-      <div className="job__co">{job.company}</div>
+      <div className="job__status"><StatusBadge status={job.status} /></div>
 
       <div className="job__meta">
         {job.location && <div className="row"><MapPin /> {job.location}</div>}

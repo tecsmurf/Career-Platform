@@ -9,25 +9,37 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import Pipeline from '../components/Pipeline';
 import EmailPanel from '../components/email/EmailPanel';
 import { JobsGridSkeleton } from '../components/Skeleton';
+import { BubbleBackground, FloatingBubbleField, ParallaxScene } from '../components/bubbles';
 import { STATUSES } from '../constants';
+import { HERO_BUBBLES, EMPTY_BUBBLES } from '../lib/companies';
 import {
-  Logo, Logout, Search, Plus, Briefcase, Check, Calendar, Sparkle, Close,
-  Inbox, AlertCircle,
+  Logo, Logout, Search, Plus, Briefcase, Calendar, Sparkle, Bookmark, AlertCircle,
 } from '../components/icons';
 
 const PAGE_SIZE = 12;
 
+// Headline numbers in the hero; the pipeline below shows every stage.
 const STAT_CARDS = [
-  { key: 'total', label: 'Total', icon: Briefcase, color: 'var(--accent)', accent: true },
-  { key: 'applied', label: 'Applied', icon: Check, color: 'var(--st-applied)' },
-  { key: 'interview', label: 'Interview', icon: Calendar, color: 'var(--st-interview)' },
+  { key: 'total', label: 'Applications', icon: Briefcase, color: 'var(--sky-deep)', accent: true },
+  { key: 'interview', label: 'Interviews', icon: Calendar, color: 'var(--st-interview)' },
   { key: 'offer', label: 'Offers', icon: Sparkle, color: 'var(--st-offer)' },
-  { key: 'rejected', label: 'Rejected', icon: Close, color: 'var(--st-rejected)' },
+  { key: 'saved', label: 'Saved', icon: Bookmark, color: 'var(--text-dim)' },
 ];
 
 function initials(name) {
   if (!name) return '?';
   return name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase()).join('');
+}
+
+function greeting(date = new Date()) {
+  const h = date.getHours();
+  if (h >= 5 && h < 12) return 'Good morning';
+  if (h >= 12 && h < 18) return 'Good afternoon';
+  return 'Good evening';
+}
+
+function firstName(fullName) {
+  return fullName?.trim().split(/\s+/)[0] || 'there';
 }
 
 export default function DashboardPage() {
@@ -118,6 +130,8 @@ export default function DashboardPage() {
 
   return (
     <>
+      <BubbleBackground />
+
       <nav className="nav">
         <div className="brand">
           <span className="brand__mark"><Logo /></span>
@@ -133,28 +147,35 @@ export default function DashboardPage() {
       </nav>
 
       <div className="page">
-        <div className="page__head">
-          <div>
-            <h1>Your applications</h1>
-            <p>Track where every opportunity stands, from saved to offer.</p>
-          </div>
-          <button className="btn btn-primary" onClick={() => { setEditingJob(null); setShowForm(true); }}>
-            <Plus /> Add application
-          </button>
-        </div>
-
-        {/* Stats */}
-        <div className="stats">
-          {STAT_CARDS.map((c) => (
-            <div key={c.key} className={`stat ${c.accent ? 'stat--accent' : ''}`}>
-              <div className="stat__top">
-                <span className="stat__ic" style={{ '--st': c.color }}><c.icon /></span>
-              </div>
-              <div className="stat__val">{stats[c.key] || 0}</div>
-              <div className="stat__label">{c.label}</div>
+        {/* Hero: greeting + headline stats, with a few bubbles in their own corner */}
+        <section className="hero" data-bubble-pass="" aria-labelledby="hero-title">
+          <div className="hero__copy">
+            <p className="hero__eyebrow">{new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</p>
+            <h1 id="hero-title">{greeting()}, {firstName(user?.full_name)}</h1>
+            <p className="hero__sub">Your career pipeline at a glance.</p>
+            <div className="hero__actions">
+              <button className="btn btn-primary btn-lg" onClick={() => { setEditingJob(null); setShowForm(true); }}>
+                <Plus /> Add application
+              </button>
             </div>
-          ))}
-        </div>
+          </div>
+
+          <ParallaxScene className="hero__scene">
+            <FloatingBubbleField companies={HERO_BUBBLES} density="dense" />
+          </ParallaxScene>
+
+          <div className="hero__stats">
+            {STAT_CARDS.map((c) => (
+              <div key={c.key} className={`stat ${c.accent ? 'stat--accent' : ''}`}>
+                <div className="stat__top">
+                  <span className="stat__ic" style={{ '--st': c.color }}><c.icon /></span>
+                  <span className="stat__label">{c.label}</span>
+                </div>
+                <div className="stat__val">{stats[c.key] || 0}</div>
+              </div>
+            ))}
+          </div>
+        </section>
 
         {/* Pipeline */}
         <Pipeline stats={stats} />
@@ -165,6 +186,7 @@ export default function DashboardPage() {
         {/* Toolbar */}
         <div className="toolbar">
           <div className="toolbar__left">
+            <h2 className="section-title">Applications</h2>
             <div className="input-wrap search">
               <span className="lead-icon"><Search /></span>
               <input
@@ -209,13 +231,17 @@ export default function DashboardPage() {
               <button className="btn btn-ghost" onClick={() => { setFilter('all'); setSearchInput(''); }}>Clear filters</button>
             </div>
           ) : (
-            <div className="center-state">
-              <div className="ic"><Inbox /></div>
-              <h3>{hasAnyJobs ? 'Nothing here yet' : 'Add your first application'}</h3>
-              <p>Start tracking a role you’ve applied to or want to save for later.</p>
-              <button className="btn btn-primary" onClick={() => { setEditingJob(null); setShowForm(true); }}>
-                <Plus /> Add application
-              </button>
+            <div className="empty" data-bubble-pass="">
+              <ParallaxScene className="empty__scene">
+                <FloatingBubbleField companies={EMPTY_BUBBLES} density="dense" />
+              </ParallaxScene>
+              <div className="empty__copy">
+                <h3>{hasAnyJobs ? 'Nothing here yet' : 'No applications yet'}</h3>
+                <p>Start tracking your career journey — add a role you’ve applied to or want to save for later.</p>
+                <button className="btn btn-primary btn-lg" onClick={() => { setEditingJob(null); setShowForm(true); }}>
+                  <Plus /> Add application
+                </button>
+              </div>
             </div>
           )
         ) : (

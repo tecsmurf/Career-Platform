@@ -1,20 +1,26 @@
-import { createContext, useContext, useState, useCallback } from 'react';
-import { CheckCircle, AlertCircle, Sparkle, Close } from '../components/icons';
+import { createContext, useContext, useState, useCallback, useRef } from 'react';
+import { CheckCircle, AlertCircle, Sparkle, Close, Clock } from '../components/icons';
 
 const ToastCtx = createContext(null);
-const ICONS = { success: CheckCircle, error: AlertCircle, info: Sparkle };
+const ICONS = { success: CheckCircle, error: AlertCircle, info: Sparkle, warn: Clock };
 
 export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([]);
+  const timers = useRef(new Map());
 
   const dismiss = useCallback((id) => {
+    clearTimeout(timers.current.get(id));
+    timers.current.delete(id);
     setToasts((t) => t.filter((x) => x.id !== id));
   }, []);
 
-  const toast = useCallback((message, type = 'info', ttl = 4000) => {
-    const id = Math.random().toString(36).slice(2);
-    setToasts((t) => [...t, { id, message, type }]);
-    if (ttl) setTimeout(() => dismiss(id), ttl);
+  // `options.key`: a toast with the same key replaces the previous one instead
+  // of stacking (e.g. repeated rate-limit notices), and its timer restarts.
+  const toast = useCallback((message, type = 'info', ttl = 4000, options = {}) => {
+    const id = options.key ? `k:${options.key}` : Math.random().toString(36).slice(2);
+    clearTimeout(timers.current.get(id));
+    setToasts((t) => [...t.filter((x) => x.id !== id), { id, message, type }]);
+    if (ttl) timers.current.set(id, setTimeout(() => dismiss(id), ttl));
   }, [dismiss]);
 
   return (

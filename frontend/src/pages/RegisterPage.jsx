@@ -39,7 +39,7 @@ export default function RegisterPage() {
       <p className="sub">Start tracking your job search in minutes.</p>
 
       <form onSubmit={handleSubmit} className="auth-form" noValidate>
-        {error && <div className="alert alert-error"><AlertCircle /><span>{error}</span></div>}
+        {error && <div className="alert alert-error" role="alert"><AlertCircle /><span>{error}</span></div>}
 
         <div className="field">
           <label htmlFor="full_name">Full name</label>
@@ -69,8 +69,8 @@ export default function RegisterPage() {
           </div>
         </div>
 
-        <button type="submit" className="btn btn-primary btn-block" disabled={loading}>
-          {loading ? <span className="spinner" /> : 'Create account'}
+        <button type="submit" className="btn btn-primary btn-block btn-lg" disabled={loading}>
+          {loading ? <><span className="spinner" /> Creating account…</> : 'Create account'}
         </button>
       </form>
 

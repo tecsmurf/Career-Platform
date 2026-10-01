@@ -138,7 +138,11 @@ async def claim_sync(db: AsyncSession, integ: EmailIntegration) -> None:
         )
     if sync_in_progress(integ):
         raise SyncBlocked("sync_in_progress", "A sync is already running for this mailbox.", 409)
-    wait = max(1, cooldown_remaining(integ))
+    wait = cooldown_remaining(integ)
+    if wait <= 0:
+        # The claim lost to a sync that held the lock and has finished since
+        # (re-read above). Not a cooldown — don't invent a wait time.
+        raise SyncBlocked("sync_in_progress", "A sync for this mailbox just finished. Refresh to see the results.", 409)
     raise SyncBlocked("cooldown", f"Please wait {wait} seconds before syncing again.", 429, retry_after=wait)
 
 

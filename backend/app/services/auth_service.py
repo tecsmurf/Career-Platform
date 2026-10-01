@@ -12,6 +12,8 @@ Why separate?
 - This makes testing easier — you can test business logic without HTTP
 """
 import asyncio
+import functools
+import secrets
 from datetime import datetime, timedelta, timezone
 
 import dns.resolver
@@ -124,9 +126,18 @@ async def create_user(db: AsyncSession, email: str, password: str, full_name: st
     return user
 
 
+@functools.lru_cache(maxsize=1)
+def _dummy_password_hash() -> str:
+    """A real bcrypt hash (same cost as user hashes) of a random throwaway value."""
+    return hash_password(secrets.token_urlsafe(32))
+
+
 async def authenticate_user(db: AsyncSession, email: str, password: str) -> User | None:
     user = await get_user_by_email(db, email)
     if not user:
+        # Spend the same bcrypt work as a real check, so response time does not
+        # reveal whether an account exists.
+        verify_password(password, _dummy_password_hash())
         return None
     if not verify_password(password, user.hashed_password):
         return None

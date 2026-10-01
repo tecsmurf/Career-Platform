@@ -1,7 +1,7 @@
 # PROJECT CONTEXT — AI Career Platform (Project 1)
 # =================================================
 # This file provides full context for any LLM/developer taking over this project.
-# Last updated: 2026-09-28
+# Last updated: 2026-10-01
 
 ## PROJECT OVERVIEW
 - **Name**: AI Career Platform
@@ -161,6 +161,10 @@ EMAIL_ENCRYPTION_KEY=<Fernet key>   (recommended; decouples mailbox creds from S
 ALLOWED_ORIGINS=https://<your-app>.vercel.app   (recommended; pins CORS)
 OPENAI_API_KEY=sk-...           (optional — enables AI extraction; rules work without it)
 OPENAI_MODEL=gpt-4o-mini
+CLIENT_IP_HEADER=CF-Connecting-IP   (recommended on Render — enables the per-IP login bucket; verify first)
+# Optional login rate limiting (defaults): LOGIN_BUCKET_CAPACITY=50, LOGIN_BUCKET_REFILL_SECONDS=1.2,
+#   LOGIN_IP_BUCKET_CAPACITY=100, LOGIN_IP_BUCKET_REFILL_SECONDS=3.0, RATE_LIMIT_BACKEND=memory
+# RATE_LIMIT_BACKEND=redis + REDIS_URL=redis://...  only if running more than one worker/instance
 # EMAIL_HOST / EMAIL_USER / EMAIL_PASSWORD are no longer used (per-user integrations instead)
 ```
 
@@ -169,13 +173,15 @@ OPENAI_MODEL=gpt-4o-mini
 2. User login with JWT tokens
 3. Full CRUD for job applications (add, edit, delete, status updates)
 4. Dashboard with job stats (applied/interview/offer/rejected counts)
-5. Dark theme UI with amber accents
+5. White + sky-blue UI with CSS-3D floating company-logo bubbles (auth pages, dashboard hero,
+   empty states); responsive density; reduced-motion support
 6. Email integration: connect Gmail (App Password) or any IMAP mailbox; verified before saving
 7. Email sync: bounded, idempotent, read-only; detects applications, interviews, rejections,
    offers, recruiter outreach; suggestions reviewed by the user before any job changes
 8. Optional AI extraction (OpenAI) layered on the rule-based detector
 9. MCP email reader server (standalone; hardened: verified TLS, timeout, read-only)
 10. Deployed and live on Render + Vercel + Neon (email integration not yet deployed)
+11. Login rate limiting: token bucket per account (50 burst, +1 / 1.2 s) + per IP (100, +1 / 3 s)
 
 ## WHAT'S NOT WORKING / DISABLED ⚠️
 1. **Live Gmail not exercised end-to-end** — the IMAP path is verified against a real IMAP server
@@ -187,6 +193,11 @@ OPENAI_MODEL=gpt-4o-mini
 5. **MCP email reader server** — intentionally NOT used by the web app (in-process provider
    layer is simpler and safer); remains a standalone tool.
 6. Outlook/Microsoft 365 not supported (Microsoft disabled IMAP basic auth; needs OAuth).
+7. **Login limiter storage is in-process by default** — correct for one uvicorn worker (current
+   Render setup). With several workers/instances set RATE_LIMIT_BACKEND=redis (+ REDIS_URL).
+8. **Per-IP login bucket is off in production until CLIENT_IP_HEADER is set.** Render is behind
+   Cloudflare (CF-Connecting-IP) per third-party reports — confirm on the live service first.
+9. Registration is not rate-limited (only login is).
 
 ## KNOWN ISSUES & GOTCHAS
 - passlib was removed; bcrypt is used directly (`bcrypt==4.2.1`), so the old passlib/bcrypt
@@ -203,12 +214,19 @@ OPENAI_MODEL=gpt-4o-mini
 - CORS: exact origins from `ALLOWED_ORIGINS` if set; otherwise falls back to the regex
   `https://.*\.vercel\.app|http://localhost:\d+`
 - Free Render tier spins down after 15min idle (cold start ~30s)
+- Retry-After is not a CORS-safelisted header: main.py exposes it (expose_headers) or the
+  frontend could not read it on 429s.
+- bcrypt runs on the event loop (sync) — each login blocks the loop ~0.2–0.3 s; the login
+  limiter bounds how often. Moving it to a thread would help under load.
 
-## DESIGN RULES
-- ❌ NO blue, purple, indigo, or violet colors anywhere
-- ✅ Dark theme: #0f0f0f background, #1a1a1a cards, #2a2a2a borders
-- ✅ Accent: #e8a23e (warm amber/gold)
+## DESIGN RULES (since 2026-10-01 — replaces the old dark + amber identity)
+- ✅ White + sky: #FFFFFF / #F7FAFC / #F0F9FF backgrounds; sky #38BDF8, #0EA5E9, #0284C7
+- ✅ Text #0F172A / #475569 / #94A3B8 (muted, non-essential only); borders #E2E8F0
+- ✅ Feedback: success #16A34A, danger #DC2626, warning #F59E0B (warning only — never as identity)
+- ❌ NO purple, violet, indigo, muddy gradients, neon, or the old amber identity
 - ✅ Font: Inter (Google Fonts)
+- ✅ 3D bubbles are decoration: behind content, pointer-events none, aria-hidden, reduced-motion aware
+- ✅ Company logos only from a licensed package (simple-icons, CC0) — otherwise a text label
 
 ## RECENT COMMIT HISTORY (newest first)
 ```
@@ -252,7 +270,7 @@ a19de77 initial commit (deployed)
 - **When**: During MCP server integration
 - **Problem**: MCP SDK updated to v1.29, changed InitializationOptions API
 - **Fix**: Used server.create_initialization_options() instead of manual init
-- **Commits**: de97088,  bd148f
+- **Commits**: de97088, bd148f
 - **Status**: FIXED
 
 ### Error 5: Neon Database SSL Incompatibility
@@ -309,3 +327,22 @@ a19de77 initial commit (deployed)
 23. Frontend Email Intelligence panel with all states; axios 401 fix (wrong-password login
     no longer reloads the page); 422 error arrays no longer crash forms.
 24. Tests: 138 passing (23 original + 111 email + 4 real-IMAP integration with pymap).
+
+### 3D Redesign + Login Rate Limiter (2026-10-01)
+25. Login rate limiting: token buckets (per account 50/+1 per 1.2 s, per IP 100/+1 per 3 s),
+    checked before bcrypt; 429 + Retry-After; HMAC-digest keys; memory (default) or Redis (Lua,
+    atomic) with in-process fallback; unknown emails now cost a bcrypt check (no timing oracle).
+26. CORS exposes Retry-After so the frontend can honour it.
+27. Fixed a sync-claim race: a claim lost to a sync that finished before the re-read was reported
+    as a bogus "wait 1 second" cooldown (flaky on PostgreSQL); now 409 sync_in_progress.
+28. Frontend redesign: white + sky design system; bubble components (CompanyBubble, FloatingBubble,
+    FloatingCompanyBubble, FloatingBubbleField, ParallaxScene, BubbleBackground); auth pages as a
+    centred card in a bubble field; dashboard hero (greeting + headline stats); pipeline with
+    per-stage tiles; bubble empty state; job cards with a small logo orb; email UI restyled.
+29. Login UX states (idle → submitting → success / invalid / rate-limited), deduplicated rate-limit
+    toast, cooldown countdown, no auto-retry. Job edit/delete buttons now visible on touch devices.
+30. New dependency: simple-icons 16.33.0 (CC0; 8 icons tree-shaken into the bundle).
+31. Tests: backend 181 (177 + 4 pymap; incl. 41 rate-limiter, Redis ones need redis-server);
+    frontend 14 (npm test, node:test).
+32. CONTEXT.md had a stray NUL byte (in Error 4's commit list) — removed.
+### Status: UNCOMMITTED

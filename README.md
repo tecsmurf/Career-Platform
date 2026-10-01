@@ -100,12 +100,12 @@ You review → edit → Add / Update   (or Ignore) → job saved
 | Layer | Technology | Why |
 |-------|-----------|-----|
 | **Frontend** | React 19 + Vite | Fast dev server, JSX, component-based UI |
-| **Styling** | Vanilla CSS (dark + amber design system) | Full control, no framework bloat |
+| **Styling** | Vanilla CSS (white + sky design system, CSS-3D bubbles) | Full control, no framework or WebGL bloat |
 | **HTTP Client** | Axios | Request/response interceptors for JWT |
 | **Backend** | FastAPI (Python) | Async, auto-docs, type validation |
 | **ORM** | SQLAlchemy 2.0 (async) | Async DB queries, relationship mapping |
 | **Database** | PostgreSQL 16 | ACID compliance, production-ready |
-| **Auth** | JWT + bcrypt | Stateless auth, secure password hashing |
+| **Auth** | JWT + bcrypt + token-bucket login limiter | Stateless auth, secure hashing, brute-force protection |
 | **Validation** | Pydantic v2 | Request/response schema enforcement |
 | **Email** | IMAP (verified TLS) + provider layer; optional OpenAI | Works with Gmail App Passwords and any IMAP mailbox |
 | **Containerization** | Docker + Docker Compose | One-command local setup |
@@ -277,17 +277,85 @@ work via **Other IMAP provider** with their IMAP host and an app-specific passwo
 
 ---
 
+## 🔐 Login Rate Limiting
+
+`POST /api/auth/login` is protected by **token buckets** (`app/core/token_bucket.py`,
+`app/services/login_limiter.py`):
+
+| Bucket | Key | Capacity | Refill |
+|---|---|---|---|
+| Per account (primary) | submitted email, `.strip().lower()` | 50 attempts | +1 every 1.2 s (≈41.7/min) |
+| Per client IP (defence in depth) | client address (IPv6 grouped by /64) | 100 attempts | +1 every 3 s |
+
+- Every login request that reaches credential verification takes one token **before** the
+  database lookup or bcrypt runs — successful logins included. Tokens regenerate gradually
+  (`floor(elapsed / 1.2 s)`, monotonic clock); there is no fixed-window reset and no lockout
+  state, so a legitimate user waits at most ~1.2 s once a burst is spent.
+- Empty bucket → `429 {"detail": "Too many login attempts. Please try again shortly."}` with
+  `Retry-After` in whole seconds (exposed to the frontend via CORS). The response is identical
+  for existing and unknown accounts; bad credentials still get the generic 401. Unknown emails
+  also cost a bcrypt check, so response time does not reveal whether an account exists.
+- Identifiers are stored and logged only as truncated HMAC-SHA256 digests; at most one
+  `login rate limit triggered` log line per bucket per minute.
+- **Storage:** `RATE_LIMIT_BACKEND=memory` (default) is atomic within one process — correct for
+  the current single-worker Render service. Running several workers/instances? Set
+  `RATE_LIMIT_BACKEND=redis` + `REDIS_URL`: the whole bucket update is one Lua script (atomic in
+  Redis, using the Redis server clock). If Redis is unreachable it falls back to in-process buckets.
+- **Client IP behind a proxy:** set `CLIENT_IP_HEADER` to a header your edge proxy overwrites
+  (Render sits behind Cloudflare: `CF-Connecting-IP`). In production the IP bucket stays off until
+  this is set, because keying on the proxy's address would throttle every user together.
+  `X-Forwarded-For` is never trusted implicitly (its leftmost entries are client-controlled).
+
+The login screen shows a single toast — *"Too many login attempts. Please wait a moment before
+trying again."* — and disables the button for the `Retry-After` window. It never retries or
+resends the password on its own.
+
+---
+
+## 🎨 Design System
+
+White + sky blue (`#38BDF8` / `#0EA5E9` / `#0284C7`) on `#FFFFFF` / `#F7FAFC`, Inter, soft
+layered shadows; no purple/violet/indigo, amber only as the warning colour. Tokens live at the
+top of `frontend/src/index.css`.
+
+The signature element is a field of **3D glass bubbles carrying company logos**
+(`frontend/src/components/bubbles/`): `CompanyBubble` (the orb), `FloatingBubble` (position,
+depth, float), `FloatingCompanyBubble`, `FloatingBubbleField` (renders a config list),
+`ParallaxScene` (perspective, mouse parallax, hover) and `BubbleBackground` (fixed backdrop).
+Scenes are data in `frontend/src/lib/companies.js`.
+
+- Pure CSS 3D — `perspective`, `translateZ`, transform/opacity animation; no WebGL.
+- Depth layers: far bubbles are smaller, fainter, blurred, slower and parallax less.
+- Each bubble has its own seeded duration (12–20 s), drift, delay and logo sway.
+- Density: 16 on desktop, 10 on tablet, 3–5 on phones (placed in bands clear of the form).
+- Decorative only: `pointer-events: none`, `aria-hidden`, always behind content. Hover is
+  detected from the pointer position, and only over empty space.
+- `prefers-reduced-motion`: float, sway and parallax off; the bubbles stay.
+- Logos: [Simple Icons](https://simpleicons.org) (CC0 package) for Google, Apple, Meta, NVIDIA,
+  Netflix, Tesla, Uber and Spotify. Brands that asked Simple Icons to remove their marks
+  (Microsoft, Amazon, OpenAI, Adobe, IBM, Salesforce, Oracle, LinkedIn) are shown as plain text.
+  All names/logos are trademarks of their owners and are decorative only.
+
+---
+
 ## 🧪 Testing
 
 ```bash
 cd backend
-pytest tests/ -v                      # 134 tests (auth, jobs, email integration)
+pytest tests/ -v                      # 177 tests (auth, jobs, login rate limiter, email)
 pip install pymap && pytest tests/    # + 4 real-IMAP-server integration tests
+# Redis-backed limiter tests run when `redis-server` is on PATH (or set REDIS_TEST_URL)
+
+cd frontend
+npm test                              # 14 unit tests (node:test, no extra dependencies)
 ```
 
 The email suite covers SSRF (private/internal hosts, DNS rebinding), TLS verification,
 credential leakage (responses and logs), cross-user isolation, idempotent sync, malformed and
 oversized email, provider failures, throttling, review/accept races, and disconnect.
+The rate-limiter suite uses an injected clock (no sleeps): burst of 50, the 51st → 429,
+one token per 1.2 s, the cap, concurrent last-token races (threads, asyncio and Redis Lua),
+per-account and per-IP independence, and the successful-login policy.
 
 ---
 

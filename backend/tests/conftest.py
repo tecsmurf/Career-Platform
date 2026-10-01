@@ -8,21 +8,30 @@ Shared pytest fixtures.
   any domain (individual tests can override it).
 - Email-integration safety nets: rate limiters reset between tests and the
   sync cooldown defaults to 0 (tests that exercise throttling set it).
+- Login rate limiter: fresh in-process buckets for every test.
+- bcrypt runs at cost 4 (same code path, much faster).
 """
+import os
+
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
 from app.database.connection import Base, get_db
 from app.main import app
 from app.services import auth_service
 
-TEST_DATABASE_URL = "sqlite+aiosqlite:///./test.db"
+# SQLite by default; set TEST_DATABASE_URL to run the suite against PostgreSQL, e.g.
+#   TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/career_test
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "sqlite+aiosqlite:///./test.db")
 
 # Mirror production: bound parameters never appear in SQL logs or exceptions.
-test_engine = create_async_engine(TEST_DATABASE_URL, echo=False, hide_parameters=True)
+# NullPool: each test runs on its own event loop, and asyncpg connections are
+# bound to the loop that created them, so connections must not be reused.
+test_engine = create_async_engine(TEST_DATABASE_URL, echo=False, hide_parameters=True, poolclass=NullPool)
 test_session = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
 
 
@@ -58,6 +67,28 @@ def _email_test_defaults(monkeypatch):
     yield
     integration.connect_limiter.reset()
     integration.test_limiter.reset()
+
+
+@pytest.fixture(autouse=True)
+def _fresh_login_limiter():
+    """Every test starts with empty, in-process login buckets (real clock)."""
+    from app.core.token_bucket import MemoryTokenBuckets
+    from app.services.login_limiter import login_limiter
+
+    login_limiter.use_store(MemoryTokenBuckets())
+    yield
+    login_limiter.use_store(MemoryTokenBuckets())
+
+
+@pytest.fixture(autouse=True)
+def _fast_bcrypt(monkeypatch):
+    """bcrypt at cost 4 instead of 12 for tests: identical code path, ~100x faster
+    (the rate-limiter tests make hundreds of logins). Production cost is unchanged."""
+    real_gensalt = auth_service.bcrypt.gensalt
+    monkeypatch.setattr(auth_service.bcrypt, "gensalt", lambda rounds=12, prefix=b"2b": real_gensalt(4, prefix))
+    auth_service._dummy_password_hash.cache_clear()
+    yield
+    auth_service._dummy_password_hash.cache_clear()
 
 
 @pytest_asyncio.fixture(autouse=True)

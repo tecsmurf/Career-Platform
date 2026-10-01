@@ -615,6 +615,28 @@ class TestSync:
         assert codes == [200, 409], (r1.text, r2.text)
         assert await count(db_session, EmailMessage) == 2
 
+    async def test_claim_lost_to_a_sync_that_since_finished_is_not_reported_as_cooldown(
+            self, auth_client, fake_imap, db_session, monkeypatch):
+        # Deterministic version of a real race: the claim fails while another sync
+        # holds the lock, and that sync finishes before the row is re-read.
+        await connected_with(auth_client, fake_imap, STRIPE_CONFIRM)
+        await db_session.execute(update(EmailIntegration).values(
+            sync_lock_until=datetime.now(timezone.utc) + timedelta(minutes=5),
+            last_sync_started_at=datetime.now(timezone.utc)))
+        await db_session.commit()
+        integ = (await db_session.execute(select(EmailIntegration))).scalar_one()
+        real_refresh = db_session.refresh
+
+        async def refresh_after_other_sync_finished(obj, *a, **kw):
+            await db_session.execute(update(EmailIntegration).values(sync_lock_until=None))
+            await db_session.commit()
+            return await real_refresh(obj, *a, **kw)
+
+        monkeypatch.setattr(db_session, "refresh", refresh_after_other_sync_finished)
+        with pytest.raises(sync_module.SyncBlocked) as exc:
+            await sync_module.claim_sync(db_session, integ)
+        assert exc.value.code == "sync_in_progress" and exc.value.http_status == 409 and exc.value.retry_after is None
+
     async def test_stale_lock_expires(self, auth_client, fake_imap, db_session):
         await connected_with(auth_client, fake_imap, STRIPE_CONFIRM)
         await db_session.execute(update(EmailIntegration).values(
@@ -718,6 +740,21 @@ class TestSuggestions:
         assert res.json()["detail"]["code"] == "duplicate_job" and res.json()["detail"]["job_id"] == existing["id"]
         assert await count(db_session, Job) == 1
         assert (await auth_client.get("/api/email/suggestions")).json()["data"][0]["review_status"] == "pending"
+
+    async def test_jobs_referenced_by_suggestions_can_still_be_deleted(self, auth_client, fake_imap, db_session):
+        # A job created from a suggestion (created_job_id FK)…
+        await connected_with(auth_client, fake_imap, RAMP_OFFER, STRIPE_INTERVIEW)
+        stripe = (await auth_client.post("/api/jobs", json={"company": "Stripe", "position": "Backend Engineer"})).json()
+        await auth_client.post("/api/email/sync")
+        data = {s["company"] or s["matched_job"]["company"]: s for s in (await auth_client.get("/api/email/suggestions")).json()["data"]}
+        created = (await auth_client.post(f"/api/email/suggestions/{data['Ramp']['id']}/accept", json={})).json()["job"]
+        assert (await auth_client.delete(f"/api/jobs/{created['id']}")).status_code == 204
+        # …and a job targeted by a pending status update (matched_job_id FK).
+        assert data["Stripe"]["kind"] == "status_update"
+        assert (await auth_client.delete(f"/api/jobs/{stripe['id']}")).status_code == 204
+        res = await auth_client.post(f"/api/email/suggestions/{data['Stripe']['id']}/accept", json={})
+        assert res.status_code == 409 and res.json()["detail"]["code"] == "job_missing"
+        assert await count(db_session, Job) == 0
 
     async def test_dismiss(self, auth_client, fake_imap, db_session):
         await connected_with(auth_client, fake_imap, LINEAR_REJECTION)
