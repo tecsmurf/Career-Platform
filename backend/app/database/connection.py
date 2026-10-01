@@ -43,6 +43,15 @@ def _fix_database_url(url: str) -> dict:
     if "sslmode" in query_params:
         needs_ssl = query_params["sslmode"][0] in ("require", "verify-full", "verify-ca")
     
+    # Ensure the asyncpg driver is used regardless of how DATABASE_URL is set.
+    # Render/Neon often provide "postgresql://..." which defaults to psycopg2.
+    scheme = parsed.scheme
+    if scheme in ("postgresql", "postgres"):
+        scheme = "postgresql+asyncpg"
+    elif scheme == "postgresql+psycopg2":
+        scheme = "postgresql+asyncpg"
+    parsed = parsed._replace(scheme=scheme)
+
     # Strip ALL query params — asyncpg doesn't accept them via URL
     clean_url = urlunparse(parsed._replace(query=""))
     
