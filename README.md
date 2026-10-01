@@ -1,6 +1,6 @@
 # 🚀 Career Platform — Full-Stack Job Application Tracker
 
-A full-stack web application that helps job seekers **track, manage, and automate** their job application pipeline. Built with **FastAPI**, **React**, **PostgreSQL**, and an **MCP-powered email sync** that automatically detects interview invitations, offers, and rejections from your inbox and updates application statuses in real-time.
+A full-stack web application that helps job seekers **track, manage, and automate** their job application pipeline. Built with **FastAPI**, **React**, and **PostgreSQL**, plus a **secure email integration** that detects application confirmations, interview invitations, offers, and rejections in your inbox and turns them into suggestions you approve before anything changes.
 
 ---
 
@@ -22,7 +22,7 @@ This platform gives you:
 
 1. **A centralized dashboard** — every application in one place with real-time stats
 2. **Smart search and filtering** — find any application by company, position, or status
-3. **Automated email sync** — an MCP server connects to your Gmail, detects job-related emails, and auto-updates application statuses (applied → interviewing → offer/rejected)
+3. **Email intelligence** — connect Gmail (App Password) or any IMAP mailbox; job-related emails are detected and extracted into suggestions that you review, edit, and approve (applied → interview → offer/rejected)
 4. **Secure multi-user support** — JWT authentication with bcrypt password hashing
 
 ---
@@ -51,65 +51,46 @@ This platform gives you:
 │  └────┬──────────────┬──────────────┬──────────────────────┘    │
 │       │              │              │                           │
 │       ▼              ▼              ▼                           │
-│  ┌─────────┐   ┌──────────┐   ┌──────────┐                     │
-│  │  Auth   │   │   Job    │   │  Email   │                     │
-│  │ Service │   │ Service  │   │  Sync    │                     │
-│  │         │   │          │   │ Service  │                     │
-│  │ • hash  │   │ • CRUD   │   │          │                     │
-│  │ • JWT   │   │ • search │   │ • match  │                     │
-│  │ • verify│   │ • filter │   │ • update │                     │
-│  └────┬────┘   └────┬─────┘   └────┬─────┘                     │
-│       │             │              │                            │
-│       ▼             ▼              │                            │
-│  ┌─────────────────────────┐       │     MCP Protocol (stdio)   │
-│  │     PostgreSQL          │       │              │              │
-│  │  ┌───────┐  ┌───────┐  │       │              ▼              │
-│  │  │ users │  │ jobs  │  │       │    ┌──────────────────┐     │
-│  │  └───────┘  └───────┘  │       │    │  Email MCP Server│     │
-│  └─────────────────────────┘       │    │                  │     │
-│                                    │    │  • fetch_emails  │     │
-│                                    │    │  • search_emails │     │
-│                                    │    │  • scan_job_mail │     │
-│                                    │    └────────┬─────────┘     │
-│                                    │             │               │
-│                                    └─────────────┘               │
-│                                          │ IMAP                  │
-└──────────────────────────────────────────┼───────────────────────┘
-                                           │
-                                    ┌──────▼──────┐
-                                    │   Gmail     │
-                                    │   Inbox     │
-                                    └─────────────┘
+│  ┌─────────┐   ┌──────────┐   ┌──────────────────────────┐     │
+│  │  Auth   │   │   Job    │   │  Email integration       │     │
+│  │ Service │   │ Service  │   │  • providers (Gmail/IMAP)│     │
+│  │ • hash  │   │ • CRUD   │   │  • SSRF guard + TLS pin  │     │
+│  │ • JWT   │   │ • search │   │  • sync engine (dedup)   │     │
+│  │ • verify│   │ • filter │   │  • classifier (+ AI)     │     │
+│  └────┬────┘   └────┬─────┘   │  • review queue          │     │
+│       │             │         └──────┬────────────┬──────┘     │
+│       ▼             ▼                ▼            │ IMAP over  │
+│  ┌──────────────────────────────────────────┐    │ verified   │
+│  │ PostgreSQL: users · jobs ·               │    │ TLS (993), │
+│  │ email_integrations · email_messages ·    │    │ read-only  │
+│  │ job_suggestions                          │    │            │
+│  └──────────────────────────────────────────┘    │            │
+└──────────────────────────────────────────────────┼────────────┘
+                                                   ▼
+                                        ┌────────────────────┐
+                                        │ Gmail / IMAP inbox │
+                                        └────────────────────┘
 ```
 
-### Data Flow — Email Auto-Sync
+### Data Flow — Email Sync
 
 ```
-Gmail Inbox
-     │
-     │ IMAP (SSL)
+Connect: provider + email + app password
+     │  verify first (DNS resolved once, all addresses public, IP pinned,
+     │  TLS certificate + host name verified) → only then encrypt & save
      ▼
-Email MCP Server ──scan_job_emails──▶ Pattern Match
-     │                                     │
-     │                          ┌──────────┴──────────┐
-     │                          │ Regex patterns for:  │
-     │                          │ • Interview invites  │
-     │                          │ • Offer letters      │
-     │                          │ • Rejections         │
-     │                          │ • Application acks   │
-     │                          └──────────┬──────────┘
-     │                                     │
-     ▼                                     ▼
-Email Sync Service ◀── detected signals ───┘
-     │
-     │ Match email company → job in database
-     │ (exact match → fuzzy match → AI match)
+Sync (throttled, bounded window, ≤100 messages)
+     │  EXAMINE INBOX (read-only) → UID SEARCH SINCE → fetch HEADERS
+     │  → dedup by Message-ID → pre-filter → fetch first 128 KB (BODY.PEEK)
+     ▼
+Classify (rules, optional AI) → extract company / position / status
+     │  values must literally appear in the email — nothing is invented
+     ▼
+Suggestion ── "New job: Ramp · AI Engineer (Offer)"  or
+              "Update Linear · Product Engineer: Applied → Rejected"
      │
      ▼
-Database UPDATE ── status: "applied" → "interviewing"
-     │
-     ▼
-Frontend notification: "Google — ML Engineer: applied → interviewing"
+You review → edit → Add / Update   (or Ignore) → job saved
 ```
 
 ---
@@ -119,14 +100,14 @@ Frontend notification: "Google — ML Engineer: applied → interviewing"
 | Layer | Technology | Why |
 |-------|-----------|-----|
 | **Frontend** | React 19 + Vite | Fast dev server, JSX, component-based UI |
-| **Styling** | Vanilla CSS (dark theme + glassmorphism) | Full control, no framework bloat |
+| **Styling** | Vanilla CSS (dark + amber design system) | Full control, no framework bloat |
 | **HTTP Client** | Axios | Request/response interceptors for JWT |
 | **Backend** | FastAPI (Python) | Async, auto-docs, type validation |
 | **ORM** | SQLAlchemy 2.0 (async) | Async DB queries, relationship mapping |
 | **Database** | PostgreSQL 16 | ACID compliance, production-ready |
 | **Auth** | JWT + bcrypt | Stateless auth, secure password hashing |
 | **Validation** | Pydantic v2 | Request/response schema enforcement |
-| **Email** | MCP Server + IMAP | Standard protocol for tool integration |
+| **Email** | IMAP (verified TLS) + provider layer; optional OpenAI | Works with Gmail App Passwords and any IMAP mailbox |
 | **Containerization** | Docker + Docker Compose | One-command local setup |
 
 ---
@@ -142,7 +123,7 @@ Career-Platform/
 │   │   │   ├── __init__.py            # Router hub
 │   │   │   ├── auth.py                # POST /register, /login, GET /me
 │   │   │   ├── jobs.py                # Full CRUD + search + filter + stats
-│   │   │   ├── email_sync.py          # POST /sync, /preview
+│   │   │   ├── email_sync.py          # /api/email/* — connect, sync, review
 │   │   │   └── health.py              # Health check
 │   │   ├── core/
 │   │   │   └── config.py              # Settings from environment variables
@@ -156,9 +137,12 @@ Career-Platform/
 │   │   └── services/
 │   │       ├── auth_service.py        # Password hashing, JWT, user lookup
 │   │       ├── job_service.py         # Job CRUD business logic
-│   │       └── email_sync_service.py  # Email-to-job matching + auto-update
+│   │       └── email/                 # Providers, IMAP transport, parsing,
+│   │                                  # classifier, AI extractor, sync, review
 │   ├── tests/
-│   │   └── test_api.py                # 13 integration tests
+│   │   ├── test_api.py                # Auth + jobs API tests
+│   │   ├── test_email.py              # Email integration: security, sync, review
+│   │   └── test_imap_integration.py   # Optional: real IMAP server (needs pymap)
 │   ├── Dockerfile
 │   └── requirements.txt
 ├── frontend/
@@ -172,13 +156,14 @@ Career-Platform/
 │   │   │   └── DashboardPage.jsx      # Stats + filters + job grid + sync
 │   │   ├── components/
 │   │   │   ├── JobCard.jsx            # Job display with status badges
-│   │   │   └── JobForm.jsx            # Add/edit modal form
+│   │   │   ├── JobForm.jsx            # Add/edit modal form
+│   │   │   └── email/                 # Email intelligence panel + modals
 │   │   └── index.css                  # Dark theme design system
 │   ├── Dockerfile
 │   └── package.json
 ├── mcp_servers/
 │   └── email_reader/
-│       └── server.py                  # MCP server: Gmail IMAP integration
+│       └── server.py                  # Standalone MCP server (not used by the web app)
 ├── docker-compose.yml                 # PostgreSQL + Backend + Frontend
 └── .gitignore
 ```
@@ -243,13 +228,21 @@ Open:
 | `PUT` | `/api/jobs/{id}` | Update job | ✅ |
 | `DELETE` | `/api/jobs/{id}` | Delete job | ✅ |
 | `GET` | `/api/jobs/stats` | Application statistics | ✅ |
-| `POST` | `/api/email/sync` | Sync emails → auto-update jobs | ✅ |
-| `POST` | `/api/email/preview` | Preview sync (dry run) | ✅ |
+| `GET` | `/api/email/status` | Connection + sync status (never credentials) | ✅ |
+| `POST` | `/api/email/connect` | Verify mailbox credentials, then store encrypted | ✅ |
+| `POST` | `/api/email/test` | Re-verify the stored connection | ✅ |
+| `POST` | `/api/email/sync` | Bounded, idempotent sync → suggestions | ✅ |
+| `POST` | `/api/email/disconnect` | Revoke credentials (jobs are kept) | ✅ |
+| `GET` | `/api/email/messages` | Job-related emails (metadata) | ✅ |
+| `GET` | `/api/email/messages/{id}` | One email, plain text | ✅ |
+| `GET` | `/api/email/suggestions` | Extracted jobs awaiting review | ✅ |
+| `POST` | `/api/email/suggestions/{id}/accept` | Approve (with edits) → create/update job | ✅ |
+| `POST` | `/api/email/suggestions/{id}/dismiss` | Ignore a suggestion | ✅ |
 
 ### Query Parameters for `GET /api/jobs`
 
 ```
-?status=interviewing          # Filter by status
+?status=interview             # applied | interview | offer | rejected | saved
 ?search=google                # Search company/position
 ?page=1&per_page=10           # Pagination
 ?sort_by=created_at&order=desc # Sorting
@@ -257,28 +250,30 @@ Open:
 
 ---
 
-## 📧 Email Sync — How It Works
+## 📧 Email Integration — How It Works
 
-The email sync feature uses the **Model Context Protocol (MCP)** to connect your Gmail inbox to the application:
+1. **Connect** (Dashboard → Email intelligence → Connect Gmail / Other IMAP provider).
+   Credentials are verified against the real mail server *before* anything is saved, then
+   encrypted (Fernet, bound to your account). Your Career Platform login and your mailbox
+   credentials are separate systems — mailbox credentials never log you in.
+2. **Sync** scans a bounded recent window read-only: nothing is sent, deleted, or marked as read,
+   and only job-related emails are kept (other mail is stored as an anonymous dedup key).
+3. **Detection** scores each candidate email into application confirmation, interview,
+   rejection, offer, recruiter outreach, or job alert, and extracts company, position, salary
+   and job link — only values that actually appear in the email. With `OPENAI_API_KEY` set,
+   an AI model refines the result; its output is validated the same way.
+4. **Review**: each opportunity appears as a suggestion. Edit it, add it to your jobs (or update
+   an existing job's status), or ignore it. Nothing changes without your approval.
 
-1. **MCP Server** spawns as a subprocess and connects to Gmail via IMAP
-2. **Pattern matching** scans email subjects and bodies for job signals:
-   - `"schedule.*interview"` → status: **interviewing**
-   - `"pleased to offer"` → status: **offer**
-   - `"not.*moving forward"` → status: **rejected**
-3. **Company extraction** identifies the sender's company from email domain
-4. **Job matching** cross-references detected companies with your database
-5. **Forward-only updates** ensure statuses only progress forward (never regress)
+### Connect Gmail
 
-### Setup Email Sync
+1. Turn on **2-Step Verification** for your Google account
+2. Create an **App Password** at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
+3. Make sure **IMAP** is enabled in Gmail settings
+4. In the app: **Connect Gmail** → your address + the 16-letter App Password
 
-1. Enable **2-Step Verification** on your Google account
-2. Generate an **App Password** at [myaccount.google.com](https://myaccount.google.com) → Security → App Passwords
-3. Add credentials to `.env`:
-   ```
-   EMAIL_USER=your-email@gmail.com
-   EMAIL_PASSWORD=your-16-char-app-password
-   ```
+Your normal Google password is never accepted. Other providers (Fastmail, Zoho, iCloud, Yahoo…)
+work via **Other IMAP provider** with their IMAP host and an app-specific password.
 
 ---
 
@@ -286,24 +281,13 @@ The email sync feature uses the **Model Context Protocol (MCP)** to connect your
 
 ```bash
 cd backend
-pytest tests/ -v
+pytest tests/ -v                      # 134 tests (auth, jobs, email integration)
+pip install pymap && pytest tests/    # + 4 real-IMAP-server integration tests
 ```
 
-```
-tests/test_api.py::TestAuth::test_register                    PASSED
-tests/test_api.py::TestAuth::test_register_duplicate_email    PASSED
-tests/test_api.py::TestAuth::test_login                       PASSED
-tests/test_api.py::TestAuth::test_login_wrong_password        PASSED
-tests/test_api.py::TestAuth::test_get_me                      PASSED
-tests/test_api.py::TestAuth::test_get_me_no_token             PASSED
-tests/test_api.py::TestJobs::test_create_job                  PASSED
-tests/test_api.py::TestJobs::test_list_jobs                   PASSED
-tests/test_api.py::TestJobs::test_filter_by_status            PASSED
-tests/test_api.py::TestJobs::test_search_jobs                 PASSED
-tests/test_api.py::TestJobs::test_update_job                  PASSED
-tests/test_api.py::TestJobs::test_delete_job                  PASSED
-tests/test_api.py::TestJobs::test_unauthorized_access         PASSED
-```
+The email suite covers SSRF (private/internal hosts, DNS rebinding), TLS verification,
+credential leakage (responses and logs), cross-user isolation, idempotent sync, malformed and
+oversized email, provider failures, throttling, review/accept races, and disconnect.
 
 ---
 

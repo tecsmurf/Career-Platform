@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { jobsAPI } from '../api';
 import { useToast } from '../lib/toast';
@@ -7,10 +7,11 @@ import JobCard from '../components/JobCard';
 import Modal from '../components/Modal';
 import ConfirmDialog from '../components/ConfirmDialog';
 import Pipeline from '../components/Pipeline';
+import EmailPanel from '../components/email/EmailPanel';
 import { JobsGridSkeleton } from '../components/Skeleton';
 import { STATUSES } from '../constants';
 import {
-  Logo, Logout, Search, Plus, Mail, Briefcase, Check, Calendar, Sparkle, Close,
+  Logo, Logout, Search, Plus, Briefcase, Check, Calendar, Sparkle, Close,
   Inbox, AlertCircle,
 } from '../components/icons';
 
@@ -158,6 +159,9 @@ export default function DashboardPage() {
         {/* Pipeline */}
         <Pipeline stats={stats} />
 
+        {/* Email intelligence (connect, sync, review) */}
+        <EmailPanel onJobsChanged={refresh} />
+
         {/* Toolbar */}
         <div className="toolbar">
           <div className="toolbar__left">
@@ -183,11 +187,6 @@ export default function DashboardPage() {
                 </button>
               ))}
             </div>
-          </div>
-          <div className="toolbar__right">
-            <button className="btn btn-soon" onClick={() => toast('Email sync is being reworked and isn’t available yet.', 'info')}>
-              <Mail /> Email sync <span className="tag">Soon</span>
-            </button>
           </div>
         </div>
 

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { getErrorMessage } from '../api';
 import AuthShell from '../components/AuthShell';
 import { AlertCircle, Eye, EyeOff, Mail } from '../components/icons';
 
@@ -26,7 +27,7 @@ export default function RegisterPage() {
       await register(form.email, form.password, form.full_name);
       navigate('/dashboard');
     } catch (err) {
-      setError(err.response?.data?.detail || 'Registration failed. Please try again.');
+      setError(getErrorMessage(err, 'Registration failed. Please try again.'));
     } finally {
       setLoading(false);
     }

@@ -21,7 +21,7 @@ Schema naming convention:
     UserResponse → for GET  (what server sends back, NO password)
     UserUpdate   → for PUT  (what client sends to update)
 """
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 
 
 class UserCreate(BaseModel):
@@ -43,20 +43,6 @@ class UserResponse(BaseModel):
     full_name: str
     created_at: str
     has_email_configured: bool = False
-
-
-class EmailSettingsSave(BaseModel):
-    """Schema for saving email sync settings."""
-    email_user: str = Field(..., min_length=5, max_length=255, examples=["your-email@gmail.com"])
-    email_app_password: str = Field(..., min_length=1, max_length=255, examples=["abcd efgh ijkl mnop"])
-    email_host: str = Field(default="imap.gmail.com", max_length=255)
-
-
-class EmailSettingsResponse(BaseModel):
-    """Schema for returning email settings (no password)."""
-    email_user: str | None = None
-    email_host: str = "imap.gmail.com"
-    is_configured: bool = False
 
 
 class Token(BaseModel):

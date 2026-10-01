@@ -15,6 +15,7 @@ Flow:
         ↓
     PostgreSQL
 """
+import logging
 import ssl as ssl_module
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
@@ -54,13 +55,30 @@ def _fix_database_url(url: str) -> dict:
 
 db_config = _fix_database_url(settings.DATABASE_URL)
 
+# DB drivers log bound parameters at DEBUG (aiosqlite logs every operation with
+# its arguments). That would write email bodies and credential ciphertext into
+# logs whenever the root logger is at DEBUG, bypassing hide_parameters below.
+# Pin them above DEBUG regardless of the global log level.
+for _noisy in ("aiosqlite", "asyncpg"):
+    logging.getLogger(_noisy).setLevel(logging.INFO)
+
 # Create the async engine — this is the connection pool to PostgreSQL
+# Connection-pool sizing only applies to server databases (PostgreSQL/Neon);
+# SQLite (handy for local development) uses its own pool and rejects these.
+_pool_kwargs = {} if db_config["url"].startswith("sqlite") else {
+    "pool_size": 3,
+    "max_overflow": 5,
+    "pool_pre_ping": True,
+}
+
 engine = create_async_engine(
     db_config["url"],
     echo=settings.DEBUG,
-    pool_size=3,
-    max_overflow=5,
+    # Never write bound parameter values (email bodies, ciphertexts, etc.) into
+    # SQL logs or exception messages, even when DEBUG echo is on.
+    hide_parameters=True,
     connect_args=db_config["connect_args"],
+    **_pool_kwargs,
 )
 
 # Session factory — creates new database sessions

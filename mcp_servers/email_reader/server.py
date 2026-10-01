@@ -20,6 +20,7 @@ import email
 import imaplib
 import os
 import re
+import ssl
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -39,13 +40,41 @@ EMAIL_USER = os.getenv("EMAIL_USER", "")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD", "")  # Gmail App Password
 
 
+IMAP_TIMEOUT = int(os.getenv("EMAIL_IMAP_TIMEOUT", "15"))
+
+
 def get_imap_connection():
-    """Connect to email via IMAP."""
+    """Connect to email via IMAP over *verified* TLS, with a timeout.
+
+    imaplib's default SSL context does not verify certificates, so an explicit
+    default context (CERT_REQUIRED + hostname check) is always passed.
+    """
     if not EMAIL_USER or not EMAIL_PASSWORD:
         raise ValueError("EMAIL_USER and EMAIL_PASSWORD environment variables are required")
-    mail = imaplib.IMAP4_SSL(EMAIL_HOST)
+    ctx = ssl.create_default_context()
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    mail = imaplib.IMAP4_SSL(EMAIL_HOST, ssl_context=ctx, timeout=IMAP_TIMEOUT)
     mail.login(EMAIL_USER, EMAIL_PASSWORD)
     return mail
+
+
+def _decode_part(data: bytes, charset: str | None) -> str:
+    """Declared charset if it exists; otherwise strict UTF-8, then Latin-1 (never fails)."""
+    if charset:
+        try:
+            return data.decode(charset, errors="replace")
+        except LookupError:
+            pass
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return data.decode("latin-1")
+
+
+def _imap_quote(value: str) -> str:
+    """Quote a user-supplied IMAP search string (prevents search-syntax injection)."""
+    cleaned = re.sub(r"[\r\n\x00]", " ", value or "")
+    return '"' + cleaned.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 def parse_email(raw_email: bytes) -> dict:
@@ -57,7 +86,7 @@ def parse_email(raw_email: bytes) -> dict:
     if msg["Subject"]:
         decoded = email.header.decode_header(msg["Subject"])
         subject = "".join(
-            part.decode(enc or "utf-8") if isinstance(part, bytes) else part
+            _decode_part(part, enc) if isinstance(part, bytes) else part
             for part, enc in decoded
         )
     
@@ -69,19 +98,19 @@ def parse_email(raw_email: bytes) -> dict:
             if content_type == "text/plain":
                 payload = part.get_payload(decode=True)
                 if payload:
-                    body = payload.decode("utf-8", errors="ignore")
+                    body = _decode_part(payload, part.get_content_charset())
                     break
             elif content_type == "text/html" and not body:
                 payload = part.get_payload(decode=True)
                 if payload:
                     # Strip HTML tags for plain text
-                    html = payload.decode("utf-8", errors="ignore")
+                    html = _decode_part(payload, part.get_content_charset())
                     body = re.sub(r'<[^>]+>', ' ', html)
                     body = re.sub(r'\s+', ' ', body).strip()
     else:
         payload = msg.get_payload(decode=True)
         if payload:
-            body = payload.decode("utf-8", errors="ignore")
+            body = _decode_part(payload, msg.get_content_charset())
     
     # Parse date
     date_str = msg.get("Date", "")
@@ -280,7 +309,7 @@ def _fetch_recent(count: int, folder: str) -> list[dict]:
     """Fetch recent emails."""
     mail = get_imap_connection()
     try:
-        mail.select(folder)
+        mail.select(folder, readonly=True)
         _, data = mail.search(None, "ALL")
         email_ids = data[0].split()
         
@@ -290,7 +319,7 @@ def _fetch_recent(count: int, folder: str) -> list[dict]:
         
         emails = []
         for eid in recent_ids:
-            _, msg_data = mail.fetch(eid, "(RFC822)")
+            _, msg_data = mail.fetch(eid, "(BODY.PEEK[])")
             if msg_data[0] is None:
                 continue
             parsed = parse_email(msg_data[0][1])
@@ -306,14 +335,14 @@ def _search_emails(keyword: str = None, sender: str = None, days_back: int = 30)
     """Search emails with filters."""
     mail = get_imap_connection()
     try:
-        mail.select("INBOX")
+        mail.select("INBOX", readonly=True)
         
         # Build IMAP search criteria
         criteria = []
         if keyword:
-            criteria.append(f'(OR SUBJECT "{keyword}" BODY "{keyword}")')
+            criteria.append(f"(OR SUBJECT {_imap_quote(keyword)} BODY {_imap_quote(keyword)})")
         if sender:
-            criteria.append(f'FROM "{sender}"')
+            criteria.append(f"FROM {_imap_quote(sender)}")
         if days_back:
             since_date = (datetime.now() - timedelta(days=days_back)).strftime("%d-%b-%Y")
             criteria.append(f'SINCE {since_date}')
@@ -324,7 +353,7 @@ def _search_emails(keyword: str = None, sender: str = None, days_back: int = 30)
         
         emails = []
         for eid in email_ids[-50:]:  # Cap at 50
-            _, msg_data = mail.fetch(eid, "(RFC822)")
+            _, msg_data = mail.fetch(eid, "(BODY.PEEK[])")
             if msg_data[0] is None:
                 continue
             parsed = parse_email(msg_data[0][1])
@@ -341,14 +370,14 @@ def _get_email_content(message_id: str) -> dict:
     """Get full email by message ID."""
     mail = get_imap_connection()
     try:
-        mail.select("INBOX")
-        _, data = mail.search(None, f'HEADER Message-ID "{message_id}"')
+        mail.select("INBOX", readonly=True)
+        _, data = mail.search(None, f"HEADER Message-ID {_imap_quote(message_id)}")
         email_ids = data[0].split()
         
         if not email_ids:
             return {"error": "Email not found"}
         
-        _, msg_data = mail.fetch(email_ids[0], "(RFC822)")
+        _, msg_data = mail.fetch(email_ids[0], "(BODY.PEEK[])")
         return parse_email(msg_data[0][1])
     finally:
         mail.logout()
@@ -367,7 +396,7 @@ def _scan_job_emails(days_back: int, count: int) -> list[dict]:
     """
     mail = get_imap_connection()
     try:
-        mail.select("INBOX")
+        mail.select("INBOX", readonly=True)
         
         since_date = (datetime.now() - timedelta(days=days_back)).strftime("%d-%b-%Y")
         _, data = mail.search(None, f'SINCE {since_date}')
@@ -379,7 +408,7 @@ def _scan_job_emails(days_back: int, count: int) -> list[dict]:
         
         job_emails = []
         for eid in recent_ids:
-            _, msg_data = mail.fetch(eid, "(RFC822)")
+            _, msg_data = mail.fetch(eid, "(BODY.PEEK[])")
             if msg_data[0] is None:
                 continue
             

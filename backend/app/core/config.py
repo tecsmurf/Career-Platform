@@ -40,14 +40,35 @@ class Settings(BaseSettings):
     # Redis (reserved; not currently used)
     REDIS_URL: str = "redis://localhost:6379/0"
 
-    # Email (Gmail IMAP — requires App Password)
-    EMAIL_HOST: str = "imap.gmail.com"
-    EMAIL_USER: str = ""       # your-email@gmail.com
-    EMAIL_PASSWORD: str = ""   # Gmail App Password (not your regular password)
+    # ---------------------------------------------------------------
+    # Email integration
+    # ---------------------------------------------------------------
+    # Fernet key(s) used to encrypt stored mailbox credentials. Comma-separated;
+    # the FIRST key encrypts, all keys can decrypt (allows rotation). Generate:
+    #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    # If empty, a key is derived from SECRET_KEY (works, but rotating SECRET_KEY
+    # will then require users to reconnect their email).
+    EMAIL_ENCRYPTION_KEY: str = ""
 
-    # OpenAI (for AI-powered job matching from emails)
+    EMAIL_IMAP_TIMEOUT_SECONDS: int = 15        # connect / login / per-command socket timeout
+    EMAIL_SYNC_MAILBOX: str = "INBOX"
+    EMAIL_SYNC_DEFAULT_DAYS: int = 30
+    EMAIL_SYNC_MAX_DAYS: int = 90
+    EMAIL_SYNC_DEFAULT_MESSAGES: int = 50
+    EMAIL_SYNC_MAX_MESSAGES: int = 100         # hard cap per sync
+    EMAIL_SYNC_MAX_BODY_BYTES: int = 131072    # only the first 128 KB of a message is downloaded
+    EMAIL_SYNC_TIME_BUDGET_SECONDS: int = 45   # sync stops (partial) when exceeded
+    EMAIL_SYNC_COOLDOWN_SECONDS: int = 60      # min seconds between syncs per user
+    EMAIL_SYNC_LOCK_SECONDS: int = 300         # stale-lock expiry if a sync process dies
+    EMAIL_CONNECT_MAX_ATTEMPTS: int = 5        # connect attempts per window per user
+    EMAIL_TEST_MAX_ATTEMPTS: int = 10          # connection tests per window per user
+    EMAIL_RATE_WINDOW_SECONDS: int = 900
+    EMAIL_AI_MAX_PER_SYNC: int = 20            # cap on LLM calls per sync (cost/abuse control)
+
+    # OpenAI (optional — enables AI extraction; rule-based detection works without it)
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o-mini"
+    OPENAI_TIMEOUT_SECONDS: int = 20
 
     @property
     def is_production(self) -> bool:
@@ -57,8 +78,23 @@ class Settings(BaseSettings):
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",") if o.strip()]
 
+    @property
+    def email_encryption_keys(self) -> list[str]:
+        return [k.strip() for k in self.EMAIL_ENCRYPTION_KEY.split(",") if k.strip()]
+
     @model_validator(mode="after")
     def _enforce_security(self):
+        # Fail fast on a malformed encryption key (never echo the key itself).
+        if self.email_encryption_keys:
+            from cryptography.fernet import Fernet
+            for i, key in enumerate(self.email_encryption_keys):
+                try:
+                    Fernet(key.encode())
+                except Exception:
+                    raise ValueError(
+                        f"EMAIL_ENCRYPTION_KEY entry #{i + 1} is not a valid Fernet key "
+                        "(expected 32 url-safe base64-encoded bytes)."
+                    ) from None
         if self.is_production:
             if not self.SECRET_KEY or self.SECRET_KEY == INSECURE_DEFAULT_SECRET:
                 raise ValueError(

@@ -42,3 +42,11 @@ export const Inbox = (p) => (<svg {...base} {...p}><path d="M22 12h-6l-2 3h-4l-2
 export const Sparkle = (p) => (<svg {...base} {...p}><path d="M12 3l1.9 5.6L19.5 10l-5.6 1.4L12 17l-1.9-5.6L4.5 10l5.6-1.4Z" /></svg>);
 export const Shield = (p) => (<svg {...base} {...p}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" /><path d="m9 12 2 2 4-4" /></svg>);
 export const BarChart = (p) => (<svg {...base} {...p}><path d="M3 3v18h18" /><rect x="7" y="11" width="3" height="6" /><rect x="12" y="7" width="3" height="10" /><rect x="17" y="13" width="3" height="4" /></svg>);
+export const Refresh = (p) => (<svg {...base} {...p}><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16" /><path d="M3 21v-5h5" /><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8" /><path d="M21 3v5h-5" /></svg>);
+export const Unlink = (p) => (<svg {...base} {...p}><path d="m18.8 13.4 1.7-1.7a5 5 0 0 0-7.2-7.2l-1.7 1.7" /><path d="m5.2 10.6-1.7 1.7a5 5 0 0 0 7.2 7.2l1.7-1.7" /><path d="M8 2v3M2 8h3M16 22v-3M22 16h-3" /></svg>);
+export const Clock = (p) => (<svg {...base} {...p}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>);
+export const Server = (p) => (<svg {...base} {...p}><rect x="3" y="4" width="18" height="7" rx="2" /><rect x="3" y="13" width="18" height="7" rx="2" /><path d="M7 7.5h.01M7 16.5h.01" /></svg>);
+export const Lock = (p) => (<svg {...base} {...p}><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>);
+export const ArrowRight = (p) => (<svg {...base} {...p}><path d="M5 12h14M13 6l6 6-6 6" /></svg>);
+export const ChevronDown = (p) => (<svg {...base} {...p}><path d="m6 9 6 6 6-6" /></svg>);
+export const Activity = (p) => (<svg {...base} {...p}><path d="M22 12h-4l-3 9L9 3l-3 9H2" /></svg>);

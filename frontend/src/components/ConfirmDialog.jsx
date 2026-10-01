@@ -9,6 +9,7 @@ export default function ConfirmDialog({
   cancelLabel = 'Cancel',
   onConfirm,
   onCancel,
+  children,
 }) {
   const [busy, setBusy] = useState(false);
 
@@ -26,6 +27,7 @@ export default function ConfirmDialog({
       <div className="confirm__ic"><AlertTriangle /></div>
       <h2 style={{ fontSize: 18 }}>{title}</h2>
       {message && <p className="confirm__msg">{message}</p>}
+      {children}
       <div className="form-actions" style={{ marginTop: 22 }}>
         <button className="btn btn-ghost" onClick={onCancel} disabled={busy}>{cancelLabel}</button>
         <button className="btn btn-danger" onClick={handleConfirm} disabled={busy}>

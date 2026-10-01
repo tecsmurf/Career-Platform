@@ -12,10 +12,22 @@ These schemas enforce that:
 If a client sends invalid data, FastAPI automatically returns
 422 Unprocessable Entity with details about what's wrong.
 """
+from datetime import date
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+def _validate_iso_date(value: Optional[str]) -> Optional[str]:
+    """Reject malformed dates with a 422 instead of crashing later with a 500."""
+    if value is None or value == "":
+        return None
+    try:
+        date.fromisoformat(value)
+    except (TypeError, ValueError):
+        raise ValueError("applied_date must be a date in YYYY-MM-DD format")
+    return value
 
 
 class JobStatus(str, Enum):
@@ -43,6 +55,11 @@ class JobCreate(BaseModel):
     notes: Optional[str] = Field(None, max_length=2000, examples=["Referral from John"])
     applied_date: Optional[str] = Field(None, examples=["2024-01-15"])
 
+    @field_validator("applied_date")
+    @classmethod
+    def _check_date(cls, v):
+        return _validate_iso_date(v)
+
     @model_validator(mode="after")
     def _check_salary(self):
         if (
@@ -67,6 +84,11 @@ class JobUpdate(BaseModel):
     location: Optional[str] = Field(None, max_length=200)
     notes: Optional[str] = Field(None, max_length=2000)
     applied_date: Optional[str] = None
+
+    @field_validator("applied_date")
+    @classmethod
+    def _check_date(cls, v):
+        return _validate_iso_date(v)
 
     @model_validator(mode="after")
     def _check_salary(self):

@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { STATUSES } from '../constants';
 import { AlertCircle } from './icons';
+import { getErrorMessage } from '../api';
 
 const EMPTY = {
   company: '', position: '', status: 'applied', location: '',
   job_url: '', salary_min: '', salary_max: '', applied_date: '', notes: '',
 };
 
-export default function JobForm({ initialData, onSubmit, onCancel }) {
+export default function JobForm({ initialData, onSubmit, onCancel, submitLabel }) {
   const [form, setForm] = useState({
     ...EMPTY,
     applied_date: new Date().toISOString().split('T')[0],
@@ -55,7 +56,7 @@ export default function JobForm({ initialData, onSubmit, onCancel }) {
         notes: form.notes.trim() || null,
       });
     } catch (err) {
-      setError(err.response?.data?.detail || 'Something went wrong while saving.');
+      setError(getErrorMessage(err, 'Something went wrong while saving.'));
     } finally {
       setLoading(false);
     }
@@ -119,7 +120,7 @@ export default function JobForm({ initialData, onSubmit, onCancel }) {
       <div className="form-actions">
         <button type="button" className="btn btn-ghost" onClick={onCancel}>Cancel</button>
         <button type="submit" className="btn btn-primary" disabled={loading}>
-          {loading ? <span className="spinner" /> : (initialData ? 'Save changes' : 'Add application')}
+          {loading ? <span className="spinner" /> : (submitLabel || (initialData ? 'Save changes' : 'Add application'))}
         </button>
       </div>
     </form>

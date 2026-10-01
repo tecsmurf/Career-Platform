@@ -51,8 +51,10 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    # Per-user email settings for Gmail sync
-    email_host: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, default="imap.gmail.com")
+    # DEPRECATED legacy email settings (pre-email_integrations). No longer read or
+    # written by the app except to clear them when the user connects/disconnects
+    # through the new flow. Kept mapped because dropping columns needs a migration.
+    email_host: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, default=None)
     email_user: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     email_app_password: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
@@ -69,7 +71,7 @@ class User(Base):
     jobs: Mapped[List["Job"]] = relationship("Job", back_populates="user", cascade="all, delete-orphan")
 
     @property
-    def has_email_configured(self) -> bool:
+    def has_legacy_email_credentials(self) -> bool:
         return bool(self.email_user and self.email_app_password)
 
     def __repr__(self):
