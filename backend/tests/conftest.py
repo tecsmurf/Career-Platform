@@ -10,6 +10,8 @@ Shared pytest fixtures.
   sync cooldown defaults to 0 (tests that exercise throttling set it).
 - Login rate limiter: fresh in-process buckets for every test.
 - bcrypt runs at cost 4 (same code path, much faster).
+- Apply Assistant: no network (an offline fetcher that always fails), no AI
+  key, fresh per-user throttles and no discovery cooldown.
 """
 import os
 
@@ -89,6 +91,49 @@ def _fast_bcrypt(monkeypatch):
     auth_service._dummy_password_hash.cache_clear()
     yield
     auth_service._dummy_password_hash.cache_clear()
+
+
+class OfflineFetcher:
+    """Default for tests: any attempt to reach the network fails like a real FetchError."""
+
+    calls: list[str] = []
+
+    async def get(self, url, **kwargs):
+        from app.services.apply.fetcher import FetchError
+
+        OfflineFetcher.calls.append(url)
+        raise FetchError("network access is disabled in tests")
+
+
+@pytest.fixture(autouse=True)
+def _apply_test_defaults(monkeypatch):
+    """Apply Assistant: fresh throttles, no cooldowns, no network, no AI."""
+    from app.api import apply as apply_api
+    from app.services.apply.service import Services
+
+    for limiter in apply_api.ALL_LIMITERS:
+        limiter.reset()
+    monkeypatch.setattr(settings, "APPLY_DISCOVERY_COOLDOWN_SECONDS", 0)
+    OfflineFetcher.calls = []
+    offline = Services(fetcher=OfflineFetcher())
+    app.dependency_overrides[apply_api.get_services] = lambda: offline
+    yield
+    app.dependency_overrides.pop(apply_api.get_services, None)
+
+
+@pytest.fixture(autouse=True)
+def _account_email_off(monkeypatch):
+    """Account email (verification codes) is off unless a test turns it on;
+    code-endpoint throttles start empty."""
+    from app.api import auth as auth_api
+
+    monkeypatch.setattr(settings, "BREVO_API_KEY", "")
+    monkeypatch.setattr(settings, "MAIL_FROM_ADDRESS", "")
+    for limiter in auth_api.ALL_AUTH_LIMITERS:
+        limiter.reset()
+    yield
+    for limiter in auth_api.ALL_AUTH_LIMITERS:
+        limiter.reset()
 
 
 @pytest_asyncio.fixture(autouse=True)
