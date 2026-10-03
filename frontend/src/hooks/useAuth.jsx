@@ -19,20 +19,35 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
-  const login = async (email, password) => {
-    const res = await authAPI.login({ email, password });
-    localStorage.setItem('token', res.data.access_token);
-    const userRes = await authAPI.getMe();
-    setUser(userRes.data);
-    return userRes.data;
+  // Store a freshly issued token and load the profile it belongs to.
+  const loginWithToken = async (token) => {
+    localStorage.setItem('token', token);
+    try {
+      const userRes = await authAPI.getMe();
+      setUser(userRes.data);
+      return userRes.data;
+    } catch (err) {
+      localStorage.removeItem('token');
+      throw err;
+    }
   };
 
+  const login = async (email, password) => {
+    const res = await authAPI.login({ email, password });
+    return loginWithToken(res.data.access_token);
+  };
+
+  /**
+   * Returns the signed-in user, or — when the server requires email
+   * verification — { verificationRequired: true, email, message, ticket } and no session.
+   */
   const register = async (email, password, full_name) => {
     const res = await authAPI.register({ email, password, full_name });
-    localStorage.setItem('token', res.data.access_token);
-    const userRes = await authAPI.getMe();
-    setUser(userRes.data);
-    return userRes.data;
+    if (res.data.verification_required) {
+      const { email: to, message, verification_ticket: ticket } = res.data;
+      return { verificationRequired: true, email: to, message, ticket };
+    }
+    return loginWithToken(res.data.access_token);
   };
 
   const logout = () => {
@@ -41,7 +56,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, loginWithToken, register, logout }}>
       {children}
     </AuthContext.Provider>
   );

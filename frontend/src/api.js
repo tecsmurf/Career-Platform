@@ -15,9 +15,13 @@ api.interceptors.request.use((config) => {
 });
 
 // A 401 means the *platform session* is invalid or expired → sign out.
-// Exceptions: the login/register calls themselves (a wrong password must show an
-// error, not reload the page). Mailbox/IMAP failures never return 401.
-const AUTH_ENTRY = ['/auth/login', '/auth/register'];
+// Exceptions: the sign-in / sign-up / code calls themselves (a wrong password
+// or code must show an error, not reload the page). Mailbox/IMAP failures
+// never return 401.
+const AUTH_ENTRY = [
+  '/auth/login', '/auth/register', '/auth/verify-email', '/auth/resend-verification',
+  '/auth/forgot-password', '/auth/reset-password', '/auth/config',
+];
 api.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -72,6 +76,14 @@ export const authAPI = {
     });
   },
   getMe: () => api.get('/auth/me'),
+  config: () => api.get('/auth/config'),
+  // `ticket` comes from sign-up or from a sign-in that needs verification.
+  verifyEmail: (ticket, code) => api.post('/auth/verify-email', { ticket, code }),
+  resendVerification: (ticket) => api.post('/auth/resend-verification', { ticket }),
+  // Reset codes are bound to the ticket returned here; pass it back to resend.
+  forgotPassword: (email, ticket) => api.post('/auth/forgot-password', ticket ? { email, ticket } : { email }),
+  resetPassword: (ticket, code, newPassword) =>
+    api.post('/auth/reset-password', { ticket, code, new_password: newPassword }),
 };
 
 // Job endpoints
@@ -96,6 +108,40 @@ export const emailAPI = {
   listSuggestions: (params) => api.get('/email/suggestions', { params }),
   acceptSuggestion: (id, data) => api.post(`/email/suggestions/${id}/accept`, data || {}),
   dismissSuggestion: (id) => api.post(`/email/suggestions/${id}/dismiss`),
+};
+
+// Apply Assistant — job intelligence and tailored applications. Nothing here
+// sends email or submits forms: "approve" freezes a copy-ready final version.
+export const applyAPI = {
+  status: () => api.get('/apply/status'),
+  overview: () => api.get('/apply/overview'),
+  getProfile: () => api.get('/apply/profile'),
+  saveProfile: (data) => api.put('/apply/profile', data),
+  getResume: () => api.get('/apply/resume'),
+  saveResume: (text) => api.put('/apply/resume', { text }),
+  uploadResume: (file) => {
+    const form = new FormData();
+    form.append('file', file);
+    return api.post('/apply/resume/upload', form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 60000 });
+  },
+  listPostings: (params) => api.get('/apply/postings', { params }),
+  addPosting: (data) => api.post('/apply/postings', data, { timeout: 60000 }),
+  getPosting: (id) => api.get(`/apply/postings/${id}`),
+  refreshPosting: (id) => api.post(`/apply/postings/${id}/refresh`, null, { timeout: 60000 }),
+  trackPosting: (id) => api.post(`/apply/postings/${id}/track`),
+  archivePosting: (id) => api.post(`/apply/postings/${id}/archive`),
+  restorePosting: (id) => api.post(`/apply/postings/${id}/restore`),
+  prepare: (id) => api.post(`/apply/postings/${id}/prepare`, null, { timeout: 90000 }),
+  listPackages: (status) => api.get('/apply/packages', { params: { status } }),
+  getPackage: (id) => api.get(`/apply/packages/${id}`),
+  editPackage: (id, baseHash, edits) => api.patch(`/apply/packages/${id}`, { base_hash: baseHash, edits }),
+  approvePackage: (id, payloadHash) => api.post(`/apply/packages/${id}/approve`, { payload_hash: payloadHash }),
+  rejectPackage: (id, reason) => api.post(`/apply/packages/${id}/reject`, { reason: reason || null }),
+  markSent: (id, channel) => api.post(`/apply/packages/${id}/mark-sent`, { channel }),
+  listSources: () => api.get('/apply/sources'),
+  addSource: (data) => api.post('/apply/sources', data),
+  deleteSource: (id) => api.delete(`/apply/sources/${id}`),
+  runSource: (id) => api.post(`/apply/sources/${id}/run`, null, { timeout: 90000 }),
 };
 
 export default api;
