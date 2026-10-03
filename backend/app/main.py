@@ -2,6 +2,7 @@
 AI Career Platform — Main Application
 ======================================
 """
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -20,6 +21,12 @@ async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
     # Startup: create tables if they don't exist
     await init_db()
+    if settings.email_auth_active and not settings.login_ip_limit_active:
+        logging.getLogger("app.security").warning(
+            "Account email is on but per-IP limits are off (no CLIENT_IP_HEADER). Sign-up and reset "
+            "emails are then limited only per account and by the daily quota; set CLIENT_IP_HEADER "
+            "(e.g. CF-Connecting-IP) to enable per-IP limits."
+        )
     yield
     # Shutdown: cleanup (nothing needed for now)
 
@@ -30,6 +37,57 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+class ApplyBodyLimit:
+    """Cap request bodies for /api/apply/* before they are parsed or spooled.
+
+    6 MB for resume uploads (5 MB file + multipart overhead), 1 MB for every
+    other Apply Assistant request. Checks Content-Length up front and counts
+    streamed bytes, so chunked uploads are cut off too.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        path = scope.get("path", "") if scope["type"] == "http" else ""
+        if not path.startswith("/api/apply"):
+            return await self.app(scope, receive, send)
+        limit = 6 * 1024 * 1024 if path.endswith("/resume/upload") else 1024 * 1024
+        for name, value in scope.get("headers", []):
+            if name == b"content-length" and value.isdigit() and int(value) > limit:
+                return await self._too_large(send)
+        received = 0
+
+        async def limited_receive():
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > limit:
+                    raise _BodyTooLarge()
+            return message
+
+        try:
+            await self.app(scope, limited_receive, send)
+        except _BodyTooLarge:
+            await self._too_large(send)
+
+    @staticmethod
+    async def _too_large(send):
+        body = b'{"detail":{"code":"too_large","message":"That request is too large."}}'
+        await send({"type": "http.response.start", "status": 413,
+                    "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode())]})
+        await send({"type": "http.response.body", "body": body})
+
+
+class _BodyTooLarge(Exception):
+    pass
+
+
+
+# Inner to CORS, so even a 413 carries CORS headers the browser can read.
+app.add_middleware(ApplyBodyLimit)
 
 # CORS: prefer an explicit allow-list of exact origins (set ALLOWED_ORIGINS in
 # the environment). Fall back to the origin regex when none is configured so
@@ -48,6 +106,7 @@ else:
     cors_kwargs["allow_origin_regex"] = settings.ALLOWED_ORIGIN_REGEX
 
 app.add_middleware(CORSMiddleware, **cors_kwargs)
+
 
 
 _SENSITIVE_LOC = ("password", "secret", "credential", "token")

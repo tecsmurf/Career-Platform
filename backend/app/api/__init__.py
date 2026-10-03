@@ -17,6 +17,7 @@ from app.api.health import router as health_router
 from app.api.auth import router as auth_router
 from app.api.jobs import router as jobs_router
 from app.api.email_sync import router as email_router
+from app.api.apply import router as apply_router
 
 router = APIRouter()
 
@@ -25,3 +26,4 @@ router.include_router(health_router, tags=["Health"])
 router.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 router.include_router(jobs_router, prefix="/jobs", tags=["Jobs"])
 router.include_router(email_router, prefix="/email", tags=["Email Sync"])
+router.include_router(apply_router, prefix="/apply", tags=["Apply Assistant"])
