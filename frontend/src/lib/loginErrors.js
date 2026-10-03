@@ -13,10 +13,11 @@ export function retryAfterSeconds(err) {
   return Number.isFinite(raw) && raw > 0 ? Math.min(raw, MAX_COOLDOWN_SECONDS) : DEFAULT_COOLDOWN_SECONDS;
 }
 
-/** idle | invalid | rate_limited | error — what a failed login attempt means for the UI. */
+/** invalid | rate_limited | unverified | error — what a failed login attempt means for the UI. */
 export function loginFailureKind(err) {
   const status = err?.response?.status;
   if (status === 429) return 'rate_limited';
   if (status === 401) return 'invalid';
+  if (status === 403 && err?.response?.data?.detail?.code === 'email_not_verified') return 'unverified';
   return 'error';
 }

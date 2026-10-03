@@ -29,3 +29,9 @@ test('failure kinds: 429 is never shown as invalid credentials', () => {
 test('rate-limit copy matches the product spec', () => {
   assert.equal(RATE_LIMIT_MESSAGE, 'Too many login attempts. Please wait a moment before trying again.');
 });
+
+test('a 403 email_not_verified is its own kind; other 403s are plain errors', () => {
+  const unverified = { response: { status: 403, headers: {}, data: { detail: { code: 'email_not_verified', email: 'a@x.com' } } } };
+  assert.equal(loginFailureKind(unverified), 'unverified');
+  assert.equal(loginFailureKind({ response: { status: 403, headers: {}, data: { detail: 'Forbidden' } } }), 'error');
+});
