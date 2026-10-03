@@ -39,11 +39,12 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def create_access_token(data: dict, expires_minutes: int = None) -> str:
+    """Sign a JWT. Callers pass ``tv`` (the user's token version) so that a
+    password reset, which bumps the version, invalidates older tokens."""
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + timedelta(
-        minutes=expires_minutes or settings.ACCESS_TOKEN_EXPIRE_MINUTES
-    )
-    to_encode.update({"exp": expire})
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(minutes=expires_minutes or settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire, "iat": now})
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm="HS256")
 
 
@@ -105,8 +106,11 @@ async def email_domain_deliverable(domain: str) -> bool:
 # User queries
 # ---------------------------------------------------------------------------
 async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
-    result = await db.execute(select(User).where(User.email == email))
-    return result.scalar_one_or_none()
+    """Exact match, else an unambiguous case-insensitive match (new accounts are
+    stored lower-case; older ones keep the casing they were registered with)."""
+    from app.services.email_auth import find_user
+
+    return await find_user(db, email)
 
 
 async def get_user_by_id(db: AsyncSession, user_id: int) -> User | None:
@@ -142,3 +146,24 @@ async def authenticate_user(db: AsyncSession, email: str, password: str) -> User
     if not verify_password(password, user.hashed_password):
         return None
     return user
+
+
+async def authenticate_with_snapshot(db: AsyncSession, email: str, password: str):
+    """Like authenticate_user, but checks the password against a hash read in
+    the SAME statement as the token version / verification state, and returns
+    ``(user, AuthSnapshot)``. A password reset that commits mid-login can then
+    never yield a session for the old password with the new token version."""
+    from app.services.email_auth import snapshot
+
+    user = await get_user_by_email(db, email)
+    if not user:
+        verify_password(password, _dummy_password_hash())
+        return None
+    found = await snapshot(db, user.id)
+    if found is None:
+        verify_password(password, _dummy_password_hash())
+        return None
+    hashed, snap = found
+    if not verify_password(password, hashed):
+        return None
+    return user, snap
