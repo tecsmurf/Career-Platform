@@ -1,7 +1,7 @@
 # PROJECT CONTEXT — AI Career Platform (Project 1)
 # =================================================
 # This file provides full context for any LLM/developer taking over this project.
-# Last updated: 2026-10-01
+# Last updated: 2026-10-03
 
 ## PROJECT OVERVIEW
 - **Name**: AI Career Platform
@@ -345,4 +345,53 @@ a19de77 initial commit (deployed)
 31. Tests: backend 181 (177 + 4 pymap; incl. 41 rate-limiter, Redis ones need redis-server);
     frontend 14 (npm test, node:test).
 32. CONTEXT.md had a stray NUL byte (in Error 4's commit list) — removed.
+### Status: UNCOMMITTED
+
+### Apply Assistant (2026-10-03) — FK Apply's features built natively into the platform
+33. New area /apply (Tracker ↔ Apply Assistant in the shared top bar, components/AppNav.jsx):
+    postings (intake by https link or pasted text, dedup, fit score), posting detail (analysis,
+    explained fit, company research with sources, contacts named in the posting, injection
+    warnings), applications (review / edit / approve / reject / mark sent), job boards
+    (Greenhouse, Lever, Ashby public APIs), profile & versioned resume (paste or PDF/DOCX/TXT).
+34. Backend: app/services/apply/* (skills, extract, injection, match, tailor, guard, documents,
+    fetcher, research, discovery, llm, resume_files, service) + app/api/apply.py. New tables only:
+    apply_profiles, apply_resumes, apply_discovery_sources, apply_postings, apply_packages,
+    apply_package_events, apply_ai_usage (create_all adds them; no existing table altered).
+35. Safety: nothing is ever sent (approve = frozen copy-ready version; user marks sent → tracker
+    job "applied"); approval bound to sha256 of the exact payload, edits void approvals, CAS
+    transitions; fabrication guard on every document; prompt-injection screening (flagged postings
+    never reach the AI); SSRF-safe fetcher (https only, public IPs only incl. every redirect, IP
+    pinning with TLS verified for the host name, size/time caps); per-user throttles; AI optional,
+    budgets checked before each call (APPLY_AI_*); APPLY_ENABLED=false kill switch.
+36. FK_APPLY (separate repo) is untouched and not connected to this app.
+37. New deps: beautifulsoup4, lxml, pypdf, python-docx.
+38. Tests: backend 259 passing (+82 apply: pipeline units, API, IDOR, review binding, races, AI
+    fallbacks, discovery) on SQLite and PostgreSQL 16; frontend 19 (npm test); browser E2E of the
+    full flow (register → profile/resume → posting → prepare → edit → approve → mark sent → tracker).
+### Status: UNCOMMITTED
+
+### Email verification & password reset (2026-10-03) — Brevo HTTPS API
+39. Sign-up emails a 6-digit code (no session until verified); existing accounts verify at their
+    next sign-in (403 email_not_verified + code). "Forgot password?" → code → new password, which
+    also verifies the address and ends every other session (JWT "tv" token version + "iat").
+    Active only when BREVO_API_KEY + MAIL_FROM_ADDRESS are set (EMAIL_AUTH_ENABLED kill switch);
+    otherwise behaviour is unchanged and reset is hidden.
+40. Backend: app/services/mailer.py (Brevo client, key never logged), app/services/email_auth.py
+    (codes stored as HMAC, 3 guesses, counted+committed before compare; per-account cooldown and
+    hourly/daily caps serialised with a row lock + in-process lock; global daily quota with a
+    separate share for never-verified sign-ups; code row committed before the provider call and
+    only current once sent_at is set), app/models/auth.py (new tables user_auth_state,
+    email_codes), app/api/auth.py (config, verify-email, resend-verification, forgot-password,
+    reset-password). Verification tickets (issued only after the password) stop pre-registration
+    squatters; reset tickets bind reset codes to the requester. Emails normalised to lower case on
+    sign-up; sign-in is case-insensitive (legacy mixed-case accounts still match exactly first).
+41. Frontend: VerifyEmailPage, ForgotPasswordPage, "Forgot password?" on sign-in (shown only when
+    the server supports it), lib/authCodes.js, hooks/useAuthConfig.js + useCountdown.js.
+42. Independent security review (2 rounds): pre-registration takeover, quota exhaustion, reset/verify
+    lockout, user text in emails, login/reset race, concurrent sends, limiter memory growth — all
+    fixed with regression tests. Accepted residual: an attacker can exhaust one account's reset
+    caps (each attempt emails the owner); CAPTCHA would be the next step.
+43. Tests: backend 319 (+49 account email) on SQLite, PostgreSQL 16 and Python 3.10; frontend 26;
+    browser E2E against a local HTTPS stand-in for Brevo (sign-up → verify, reset, old session
+    ended, unverified sign-in, send failure, mobile).
 ### Status: UNCOMMITTED
