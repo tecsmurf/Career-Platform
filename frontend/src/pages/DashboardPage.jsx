@@ -8,12 +8,13 @@ import Modal from '../components/Modal';
 import ConfirmDialog from '../components/ConfirmDialog';
 import Pipeline from '../components/Pipeline';
 import EmailPanel from '../components/email/EmailPanel';
+import AppNav from '../components/AppNav';
 import { JobsGridSkeleton } from '../components/Skeleton';
 import { BubbleBackground, FloatingBubbleField, ParallaxScene } from '../components/bubbles';
 import { STATUSES } from '../constants';
 import { HERO_BUBBLES, EMPTY_BUBBLES } from '../lib/companies';
 import {
-  Logo, Logout, Search, Plus, Briefcase, Calendar, Sparkle, Bookmark, AlertCircle,
+  Search, Plus, Briefcase, Calendar, Sparkle, Bookmark, AlertCircle,
 } from '../components/icons';
 
 const PAGE_SIZE = 12;
@@ -25,11 +26,6 @@ const STAT_CARDS = [
   { key: 'offer', label: 'Offers', icon: Sparkle, color: 'var(--st-offer)' },
   { key: 'saved', label: 'Saved', icon: Bookmark, color: 'var(--text-dim)' },
 ];
-
-function initials(name) {
-  if (!name) return '?';
-  return name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase()).join('');
-}
 
 function greeting(date = new Date()) {
   const h = date.getHours();
@@ -43,7 +39,7 @@ function firstName(fullName) {
 }
 
 export default function DashboardPage() {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const { toast } = useToast();
 
   const [jobs, setJobs] = useState([]);
@@ -132,19 +128,7 @@ export default function DashboardPage() {
     <>
       <BubbleBackground />
 
-      <nav className="nav">
-        <div className="brand">
-          <span className="brand__mark"><Logo /></span>
-          <span className="brand__name">Career<b>Platform</b></span>
-        </div>
-        <div className="nav__right">
-          <div className="nav__user">
-            <span className="avatar" aria-hidden="true">{initials(user?.full_name)}</span>
-            <span className="who"><b>{user?.full_name}</b>{user?.email}</span>
-          </div>
-          <button className="btn btn-ghost" onClick={logout}><Logout /> Logout</button>
-        </div>
-      </nav>
+      <AppNav />
 
       <div className="page">
         {/* Hero: greeting + headline stats, with a few bubbles in their own corner */}

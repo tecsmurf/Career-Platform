@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { useAuthConfig } from '../hooks/useAuthConfig';
 import { getErrorMessage } from '../api';
 import { useToast } from '../lib/toast';
 import { RATE_LIMIT_MESSAGE, loginFailureKind, retryAfterSeconds } from '../lib/loginErrors';
@@ -12,16 +13,19 @@ import { AlertCircle, Check, Clock, Eye, EyeOff, Mail } from '../components/icon
  *                           → invalid       (wrong email/password: inline error)
  *                           → rate_limited  (429: one toast + a short cooldown;
  *                                            never retried automatically)
+ *                           → unverified    (403: go to the code screen)
  *                           → error         (network / server)
  */
 export default function LoginPage() {
-  const [email, setEmail] = useState('');
+  const location = useLocation();
+  const [email, setEmail] = useState(location.state?.email || '');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
   const [state, setState] = useState('idle');
   const [error, setError] = useState('');
   const [cooldown, setCooldown] = useState(0);
   const { login } = useAuth();
+  const config = useAuthConfig();
   const { toast } = useToast();
   const navigate = useNavigate();
 
@@ -47,6 +51,14 @@ export default function LoginPage() {
       navigate('/dashboard');
     } catch (err) {
       const kind = loginFailureKind(err);
+      if (kind === 'unverified') {
+        const detail = err.response.data.detail;
+        setState('idle');
+        navigate('/verify-email', {
+          state: { email: detail.email, sent: detail.email_sent, message: detail.message, ticket: detail.ticket },
+        });
+        return;
+      }
       setState(kind);
       if (kind === 'rate_limited') {
         setCooldown(retryAfterSeconds(err));
@@ -81,7 +93,12 @@ export default function LoginPage() {
         </div>
 
         <div className="field">
-          <label htmlFor="password">Password</label>
+          <div className="field__label-row">
+            <label htmlFor="password">Password</label>
+            {config.password_reset && (
+              <Link to="/forgot-password" state={{ email: email.trim() }} className="field__link">Forgot password?</Link>
+            )}
+          </div>
           <div className="input-wrap">
             <input id="password" className="input" type={showPw ? 'text' : 'password'} autoComplete="current-password"
               value={password} onChange={(e) => { setPassword(e.target.value); if (state === 'invalid') setState('idle'); }} placeholder="••••••••" required style={{ paddingLeft: 13 }}

@@ -24,8 +24,14 @@ export default function RegisterPage() {
     }
     setLoading(true);
     try {
-      await register(form.email, form.password, form.full_name);
-      navigate('/dashboard');
+      const result = await register(form.email, form.password, form.full_name);
+      if (result?.verificationRequired) {
+        navigate('/verify-email', {
+          state: { email: result.email, sent: true, message: result.message, ticket: result.ticket },
+        });
+      } else {
+        navigate('/dashboard');
+      }
     } catch (err) {
       setError(getErrorMessage(err, 'Registration failed. Please try again.'));
     } finally {
