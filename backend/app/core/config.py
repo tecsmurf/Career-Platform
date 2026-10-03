@@ -95,6 +95,60 @@ class Settings(BaseSettings):
     OPENAI_MODEL: str = "gpt-4o-mini"
     OPENAI_TIMEOUT_SECONDS: int = 20
 
+    # ---------------------------------------------------------------
+    # Apply Assistant (job intelligence + tailored applications)
+    # ---------------------------------------------------------------
+    # Kill switch for the whole feature: when false every /api/apply endpoint
+    # answers 503 and nothing is fetched, analysed or drafted.
+    APPLY_ENABLED: bool = True
+    # AI drafting (cover letter polish, role summary). Also needs OPENAI_API_KEY.
+    # Without it everything still works with deterministic drafts.
+    APPLY_AI_ENABLED: bool = True
+    APPLY_AI_DAILY_BUDGET_USD: float = 0.20      # per user, per UTC day
+    APPLY_AI_MONTHLY_BUDGET_USD: float = 5.00    # all users together, per UTC month
+    APPLY_AI_MAX_CALLS_PER_REQUEST: int = 3
+    APPLY_AI_MAX_OUTPUT_TOKENS: int = 900
+    # Fetching posting links / company homepages (SSRF-safe fetcher).
+    APPLY_FETCH_TIMEOUT_SECONDS: float = 15.0
+    APPLY_FETCH_MAX_BYTES: int = 2_000_000
+    APPLY_COMPANY_SITE_LOOKUP: bool = True        # read the employer homepage title/description
+    # Public job boards (Greenhouse / Lever / Ashby).
+    APPLY_DISCOVERY_MAX_NEW: int = 25             # new postings imported per run
+    APPLY_DISCOVERY_COOLDOWN_SECONDS: int = 600   # per source
+    APPLY_MAX_POSTINGS_PER_USER: int = 500
+    APPLY_RESUME_MAX_BYTES: int = 5_000_000
+
+    # ---------------------------------------------------------------
+    # Account email: verification codes + password reset (Brevo API)
+    # ---------------------------------------------------------------
+    # Active only when EMAIL_AUTH_ENABLED is true AND both BREVO_API_KEY and
+    # MAIL_FROM_ADDRESS are set (the address must be a verified sender in
+    # Brevo). Otherwise sign-up/sign-in work exactly as before and password
+    # reset is reported as unavailable — nothing pretends to send email.
+    # Brevo is used over HTTPS because Render's free tier blocks SMTP ports.
+    EMAIL_AUTH_ENABLED: bool = True
+    BREVO_API_KEY: str = ""
+    BREVO_API_URL: str = "https://api.brevo.com/v3/smtp/email"
+    MAIL_FROM_ADDRESS: str = ""
+    MAIL_FROM_NAME: str = "Career Platform"
+    MAIL_TIMEOUT_SECONDS: float = 10.0
+    AUTH_CODE_TTL_MINUTES: int = 15
+    AUTH_CODE_MAX_ATTEMPTS: int = 3          # guesses per code (then a new code is needed)
+    AUTH_CODE_RESEND_SECONDS: int = 60       # min gap between codes per account
+    AUTH_CODE_MAX_PER_HOUR: int = 5          # codes per account and purpose
+    AUTH_CODE_MAX_PER_DAY: int = 10
+    # The sign-in step that leads to the code screen stays valid this long.
+    AUTH_VERIFY_TICKET_MINUTES: int = 120
+    # Protects the provider quota (Brevo free plan: 300 emails/day). New
+    # sign-ups may use only part of it, so a burst of fake registrations can't
+    # stop existing users from verifying or resetting their password.
+    MAIL_DAILY_SEND_LIMIT: int = 250
+    MAIL_DAILY_SIGNUP_LIMIT: int = 150
+
+    @property
+    def email_auth_active(self) -> bool:
+        return bool(self.EMAIL_AUTH_ENABLED and self.BREVO_API_KEY.strip() and self.MAIL_FROM_ADDRESS.strip())
+
     @property
     def is_production(self) -> bool:
         return self.ENVIRONMENT.strip().lower() == "production"
@@ -130,6 +184,36 @@ class Settings(BaseSettings):
         for name in ("LOGIN_BUCKET_REFILL_SECONDS", "LOGIN_IP_BUCKET_REFILL_SECONDS"):
             if getattr(self, name) < 0.001:
                 raise ValueError(f"{name} must be positive.")
+        if self.APPLY_AI_DAILY_BUDGET_USD < 0 or self.APPLY_AI_MONTHLY_BUDGET_USD < 0:
+            raise ValueError("APPLY_AI_*_BUDGET_USD must not be negative.")
+        if not 1 <= self.APPLY_FETCH_TIMEOUT_SECONDS <= 60:
+            raise ValueError("APPLY_FETCH_TIMEOUT_SECONDS must be between 1 and 60.")
+        if not 10_000 <= self.APPLY_FETCH_MAX_BYTES <= 20_000_000:
+            raise ValueError("APPLY_FETCH_MAX_BYTES must be between 10000 and 20000000.")
+        if self.BREVO_API_KEY.strip():
+            sender = self.MAIL_FROM_ADDRESS.strip()
+            if not sender:
+                raise ValueError("MAIL_FROM_ADDRESS is required when BREVO_API_KEY is set "
+                                 "(use a sender address verified in your Brevo account).")
+            if sender.count("@") != 1 or "." not in sender.split("@")[1] or any(c.isspace() for c in sender):
+                raise ValueError("MAIL_FROM_ADDRESS must be a plain email address, e.g. no-reply@yourdomain.com.")
+        if not self.BREVO_API_URL.startswith("https://"):
+            raise ValueError("BREVO_API_URL must be an https:// URL.")
+        if not 1 <= self.MAIL_TIMEOUT_SECONDS <= 30:
+            raise ValueError("MAIL_TIMEOUT_SECONDS must be between 1 and 30.")
+        if not 5 <= self.AUTH_CODE_TTL_MINUTES <= 60:
+            raise ValueError("AUTH_CODE_TTL_MINUTES must be between 5 and 60.")
+        if not 1 <= self.AUTH_CODE_MAX_ATTEMPTS <= 10:
+            raise ValueError("AUTH_CODE_MAX_ATTEMPTS must be between 1 and 10.")
+        for name in ("AUTH_CODE_RESEND_SECONDS", "MAIL_DAILY_SEND_LIMIT", "MAIL_DAILY_SIGNUP_LIMIT"):
+            if getattr(self, name) < 0:
+                raise ValueError(f"{name} must not be negative.")
+        if self.MAIL_DAILY_SEND_LIMIT and self.MAIL_DAILY_SIGNUP_LIMIT > self.MAIL_DAILY_SEND_LIMIT:
+            raise ValueError("MAIL_DAILY_SIGNUP_LIMIT must not exceed MAIL_DAILY_SEND_LIMIT.")
+        if not 15 <= self.AUTH_VERIFY_TICKET_MINUTES <= 1440:
+            raise ValueError("AUTH_VERIFY_TICKET_MINUTES must be between 15 and 1440.")
+        if self.AUTH_CODE_MAX_PER_HOUR < 1 or self.AUTH_CODE_MAX_PER_DAY < self.AUTH_CODE_MAX_PER_HOUR:
+            raise ValueError("AUTH_CODE_MAX_PER_HOUR must be at least 1 and not above AUTH_CODE_MAX_PER_DAY.")
         return self
 
     @model_validator(mode="after")
