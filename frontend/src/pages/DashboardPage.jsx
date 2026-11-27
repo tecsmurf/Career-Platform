@@ -3,29 +3,19 @@ import { useAuth } from '../hooks/useAuth';
 import { jobsAPI } from '../api';
 import { useToast } from '../lib/toast';
 import JobForm from '../components/JobForm';
-import JobCard from '../components/JobCard';
+import JobCard, { BoardCard } from '../components/JobCard';
 import Modal from '../components/Modal';
 import ConfirmDialog from '../components/ConfirmDialog';
 import Pipeline from '../components/Pipeline';
 import EmailPanel from '../components/email/EmailPanel';
-import AppNav from '../components/AppNav';
+import AppShell from '../components/AppShell';
 import { JobsGridSkeleton } from '../components/Skeleton';
-import { BubbleBackground, FloatingBubbleField, ParallaxScene } from '../components/bubbles';
-import { STATUSES } from '../constants';
-import { HERO_BUBBLES, EMPTY_BUBBLES } from '../lib/companies';
-import {
-  Search, Plus, Briefcase, Calendar, Sparkle, Bookmark, AlertCircle,
-} from '../components/icons';
+import { STATUSES, STATUS_LABEL } from '../constants';
+import { Search, Plus, AlertCircle, Briefcase, Close } from '../components/icons';
 
 const PAGE_SIZE = 12;
-
-// Headline numbers in the hero; the pipeline below shows every stage.
-const STAT_CARDS = [
-  { key: 'total', label: 'Applications', icon: Briefcase, color: 'var(--sky-deep)', accent: true },
-  { key: 'interview', label: 'Interviews', icon: Calendar, color: 'var(--st-interview)' },
-  { key: 'offer', label: 'Offers', icon: Sparkle, color: 'var(--st-offer)' },
-  { key: 'saved', label: 'Saved', icon: Bookmark, color: 'var(--text-dim)' },
-];
+const BOARD_LIMIT = 100; // API maximum per request
+const VIEW_KEY = 'tracker:view';
 
 function greeting(date = new Date()) {
   const h = date.getHours();
@@ -36,6 +26,47 @@ function greeting(date = new Date()) {
 
 function firstName(fullName) {
   return fullName?.trim().split(/\s+/)[0] || 'there';
+}
+
+function readView() {
+  try { return localStorage.getItem(VIEW_KEY) === 'board' ? 'board' : 'list'; } catch { return 'list'; }
+}
+
+const ListIcon = (p) => (
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true" {...p}>
+    <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
+  </svg>
+);
+const BoardIcon = (p) => (
+  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true" {...p}>
+    <rect x="3" y="4" width="5" height="16" rx="1.5" /><rect x="10" y="4" width="5" height="11" rx="1.5" /><rect x="17" y="4" width="4" height="7" rx="1.5" />
+  </svg>
+);
+
+/** Headline numbers. Response rate = applications that heard back / applications sent. */
+function Kpis({ stats }) {
+  const total = stats.total || 0;
+  const sent = total - (stats.saved || 0);
+  const heard = (stats.interview || 0) + (stats.offer || 0) + (stats.rejected || 0);
+  const active = (stats.applied || 0) + (stats.interview || 0);
+  const items = [
+    { label: 'Total tracked', value: total },
+    { label: 'In progress', value: active, hint: 'Applied or interviewing' },
+    { label: 'Interviews', value: stats.interview || 0 },
+    { label: 'Offers', value: stats.offer || 0, tone: 'good' },
+    { label: 'Response rate', value: sent ? `${Math.round((heard / sent) * 100)}%` : '—', hint: sent ? `${heard} of ${sent} heard back` : 'No applications sent yet' },
+  ];
+  return (
+    <dl className="kpis">
+      {items.map((k) => (
+        <div key={k.label} className={`kpi ${k.tone ? `kpi--${k.tone}` : ''}`}>
+          <dt>{k.label}</dt>
+          <dd>{k.value}</dd>
+          {k.hint && <span className="kpi__hint">{k.hint}</span>}
+        </div>
+      ))}
+    </dl>
+  );
 }
 
 export default function DashboardPage() {
@@ -49,9 +80,12 @@ export default function DashboardPage() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [totalShown, setTotalShown] = useState(0);
+  const [view, setView] = useState(readView);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [busyId, setBusyId] = useState(null);
 
   const [showForm, setShowForm] = useState(false);
   const [editingJob, setEditingJob] = useState(null);
@@ -59,9 +93,15 @@ export default function DashboardPage() {
 
   // Debounce the search box → one request after typing settles.
   useEffect(() => {
-    const t = setTimeout(() => { setSearch(searchInput); setPage(1); }, 300);
+    const t = setTimeout(() => { setSearch(searchInput.trim()); setPage(1); }, 300);
     return () => clearTimeout(t);
   }, [searchInput]);
+
+  const changeView = (v) => {
+    setView(v);
+    setPage(1);
+    try { localStorage.setItem(VIEW_KEY, v); } catch { /* preference only */ }
+  };
 
   const fetchStats = useCallback(async () => {
     try {
@@ -74,23 +114,27 @@ export default function DashboardPage() {
     setLoading(true);
     setError(false);
     try {
-      const params = { page, limit: PAGE_SIZE };
-      if (filter !== 'all') params.status = filter;
+      // The board shows every stage side by side, so it loads one large page
+      // and ignores the stage filter; the list pages through the filtered set.
+      const params = view === 'board' ? { page: 1, limit: BOARD_LIMIT } : { page, limit: PAGE_SIZE };
+      if (view === 'list' && filter !== 'all') params.status = filter;
       if (search) params.search = search;
       const res = await jobsAPI.list(params);
       setJobs(res.data.data);
       setTotalPages(res.data.pages || 1);
+      setTotalShown(res.data.total || 0);
     } catch {
       setError(true);
     } finally {
       setLoading(false);
     }
-  }, [page, filter, search]);
+  }, [page, filter, search, view]);
 
   useEffect(() => { fetchJobs(); }, [fetchJobs]);
   useEffect(() => { fetchStats(); }, [fetchStats]);
 
   const refresh = () => { fetchJobs(); fetchStats(); };
+  const openAdd = () => { setEditingJob(null); setShowForm(true); };
 
   const handleCreate = async (data) => {
     await jobsAPI.create(data);
@@ -106,6 +150,26 @@ export default function DashboardPage() {
     refresh();
   };
 
+  // Inline status change: update the row right away, then confirm with the server.
+  const handleStatusChange = async (job, status) => {
+    if (status === job.status) return;
+    const prev = jobs;
+    setBusyId(job.id);
+    setJobs((list) => list.map((j) => (j.id === job.id ? { ...j, status } : j)));
+    try {
+      await jobsAPI.update(job.id, { status });
+      toast(`Moved to ${STATUS_LABEL[status]}.`, 'success', 2500);
+      fetchStats();
+      // In a filtered list the row no longer belongs; reload that page.
+      if (view === 'list' && filter !== 'all') fetchJobs();
+    } catch {
+      setJobs(prev);
+      toast('Could not update the status. Please try again.', 'error');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const handleDelete = async () => {
     const job = confirmJob;
     try {
@@ -113,7 +177,7 @@ export default function DashboardPage() {
       setConfirmJob(null);
       toast('Application deleted.', 'success');
       // If we just removed the last item on a page, step back a page.
-      if (jobs.length === 1 && page > 1) setPage((p) => p - 1);
+      if (view === 'list' && jobs.length === 1 && page > 1) setPage((p) => p - 1);
       else refresh();
     } catch {
       setConfirmJob(null);
@@ -121,134 +185,146 @@ export default function DashboardPage() {
     }
   };
 
-  const filtersActive = filter !== 'all' || !!search;
+  const selectFilter = (value) => { setFilter(value); setPage(1); if (value !== 'all' && view === 'board') changeView('list'); };
+  const clearFilters = () => { setFilter('all'); setSearchInput(''); setSearch(''); setPage(1); };
+  const filtersActive = (view === 'list' && filter !== 'all') || !!search;
   const hasAnyJobs = (stats.total || 0) > 0;
+  const today = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
 
   return (
-    <>
-      <BubbleBackground />
-
-      <AppNav />
-
+    <AppShell>
       <div className="page">
-        {/* Hero: greeting + headline stats, with a few bubbles in their own corner */}
-        <section className="hero" data-bubble-pass="" aria-labelledby="hero-title">
-          <div className="hero__copy">
-            <p className="hero__eyebrow">{new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</p>
-            <h1 id="hero-title">{greeting()}, {firstName(user?.full_name)}</h1>
-            <p className="hero__sub">Your career pipeline at a glance.</p>
-            <div className="hero__actions">
-              <button className="btn btn-primary btn-lg" onClick={() => { setEditingJob(null); setShowForm(true); }}>
-                <Plus /> Add application
-              </button>
-            </div>
+        <header className="page-head">
+          <div>
+            <p className="eyebrow">{today}</p>
+            <h1>{greeting()}, {firstName(user?.full_name)}</h1>
+            <p className="page-head__sub">
+              {hasAnyJobs
+                ? `You have ${(stats.applied || 0) + (stats.interview || 0)} applications in progress and ${stats.interview || 0} at interview stage.`
+                : 'Track every application, interview and offer in one place.'}
+            </p>
           </div>
+          <button className="btn btn-primary" onClick={openAdd}><Plus /> Add application</button>
+        </header>
 
-          <ParallaxScene className="hero__scene">
-            <FloatingBubbleField companies={HERO_BUBBLES} density="dense" />
-          </ParallaxScene>
-
-          <div className="hero__stats">
-            {STAT_CARDS.map((c) => (
-              <div key={c.key} className={`stat ${c.accent ? 'stat--accent' : ''}`}>
-                <div className="stat__top">
-                  <span className="stat__ic" style={{ '--st': c.color }}><c.icon /></span>
-                  <span className="stat__label">{c.label}</span>
-                </div>
-                <div className="stat__val">{stats[c.key] || 0}</div>
-              </div>
-            ))}
-          </div>
+        <section className="card overview" aria-label="Overview">
+          <Kpis stats={stats} />
+          <Pipeline stats={stats} active={view === 'list' ? filter : 'all'} onSelect={selectFilter} />
         </section>
 
-        {/* Pipeline */}
-        <Pipeline stats={stats} />
-
-        {/* Email intelligence (connect, sync, review) */}
-        <EmailPanel onJobsChanged={refresh} />
-
-        {/* Toolbar */}
-        <div className="toolbar">
-          <div className="toolbar__left">
-            <h2 className="section-title">Applications</h2>
-            <div className="input-wrap search">
-              <span className="lead-icon"><Search /></span>
-              <input
-                className="input"
-                type="search"
-                placeholder="Search company or position…"
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-                aria-label="Search applications"
-              />
+        <section className="card tracker" aria-labelledby="apps-title">
+          <div className="tracker__head">
+            <h2 id="apps-title" className="section-title">
+              Applications {!loading && <span className="count-badge">{totalShown}</span>}
+            </h2>
+            <div className="tracker__tools">
+              <div className="input-wrap search">
+                <span className="lead-icon"><Search /></span>
+                <input
+                  className="input"
+                  type="search"
+                  placeholder="Search company or role"
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  aria-label="Search applications"
+                />
+              </div>
+              <div className="seg seg--icons" role="group" aria-label="Layout">
+                <button type="button" aria-pressed={view === 'list'} onClick={() => changeView('list')}><ListIcon /> <span>List</span></button>
+                <button type="button" aria-pressed={view === 'board'} onClick={() => changeView('board')}><BoardIcon /> <span>Board</span></button>
+              </div>
             </div>
-            <div className="filters" role="group" aria-label="Filter by status">
-              <button className="pill" aria-pressed={filter === 'all'} onClick={() => { setFilter('all'); setPage(1); }}>
+          </div>
+
+          {view === 'list' && (
+            <div className="tabs" role="group" aria-label="Filter by status">
+              <button className="tab" aria-pressed={filter === 'all'} onClick={() => selectFilter('all')}>
                 All <span className="count">{stats.total || 0}</span>
               </button>
               {STATUSES.map((s) => (
-                <button key={s.value} className="pill" aria-pressed={filter === s.value}
-                  onClick={() => { setFilter(s.value); setPage(1); }}>
+                <button key={s.value} className="tab" aria-pressed={filter === s.value} onClick={() => selectFilter(s.value)}>
                   {s.label} <span className="count">{stats[s.value] || 0}</span>
                 </button>
               ))}
             </div>
-          </div>
-        </div>
+          )}
 
-        {/* Content states */}
-        {loading ? (
-          <JobsGridSkeleton count={6} />
-        ) : error ? (
-          <div className="center-state">
-            <div className="ic"><AlertCircle /></div>
-            <h3>Couldn’t load your applications</h3>
-            <p>Something went wrong reaching the server. Check your connection and try again.</p>
-            <button className="btn btn-primary" onClick={refresh}>Retry</button>
-          </div>
-        ) : jobs.length === 0 ? (
-          filtersActive ? (
+          {loading ? (
+            <JobsGridSkeleton count={5} />
+          ) : error ? (
             <div className="center-state">
-              <div className="ic"><Search /></div>
-              <h3>No matching applications</h3>
-              <p>Try a different search term or clear your filters.</p>
-              <button className="btn btn-ghost" onClick={() => { setFilter('all'); setSearchInput(''); }}>Clear filters</button>
+              <div className="ic"><AlertCircle /></div>
+              <h3>Couldn’t load your applications</h3>
+              <p>Something went wrong reaching the server. Check your connection and try again.</p>
+              <button className="btn btn-primary" onClick={refresh}>Retry</button>
+            </div>
+          ) : jobs.length === 0 ? (
+            filtersActive ? (
+              <div className="center-state">
+                <div className="ic"><Search /></div>
+                <h3>No matching applications</h3>
+                <p>Try a different search term or clear your filters.</p>
+                <button className="btn btn-ghost" onClick={clearFilters}><Close /> Clear filters</button>
+              </div>
+            ) : (
+              <div className="center-state">
+                <div className="ic"><Briefcase /></div>
+                <h3>{hasAnyJobs ? 'Nothing here yet' : 'Add your first application'}</h3>
+                <p>Save roles you’re interested in, then move them from Applied to Interview to Offer as things progress.</p>
+                <button className="btn btn-primary" onClick={openAdd}><Plus /> Add application</button>
+              </div>
+            )
+          ) : view === 'board' ? (
+            <div className="board">
+              {STATUSES.map((s) => {
+                const col = jobs.filter((j) => j.status === s.value);
+                return (
+                  <section key={s.value} className="board__col" aria-label={`${s.label}, ${col.length}`}>
+                    <header className="board__head">
+                      <span className="legend-dot" style={{ background: s.color }} />
+                      <h3>{s.label}</h3>
+                      <span className="count">{col.length}</span>
+                    </header>
+                    <div className="board__items">
+                      {col.length === 0
+                        ? <p className="board__empty">No applications</p>
+                        : col.map((job) => (
+                          <BoardCard key={job.id} job={job} busy={busyId === job.id}
+                            onEdit={() => { setEditingJob(job); setShowForm(false); }}
+                            onStatusChange={(st) => handleStatusChange(job, st)} />
+                        ))}
+                    </div>
+                  </section>
+                );
+              })}
             </div>
           ) : (
-            <div className="empty" data-bubble-pass="">
-              <ParallaxScene className="empty__scene">
-                <FloatingBubbleField companies={EMPTY_BUBBLES} density="dense" />
-              </ParallaxScene>
-              <div className="empty__copy">
-                <h3>{hasAnyJobs ? 'Nothing here yet' : 'No applications yet'}</h3>
-                <p>Start tracking your career journey — add a role you’ve applied to or want to save for later.</p>
-                <button className="btn btn-primary btn-lg" onClick={() => { setEditingJob(null); setShowForm(true); }}>
-                  <Plus /> Add application
-                </button>
+            <>
+              <div className="job-list">
+                {jobs.map((job) => (
+                  <JobCard
+                    key={job.id}
+                    job={job}
+                    busy={busyId === job.id}
+                    onEdit={() => { setEditingJob(job); setShowForm(false); }}
+                    onDelete={() => setConfirmJob(job)}
+                    onStatusChange={(st) => handleStatusChange(job, st)}
+                  />
+                ))}
               </div>
-            </div>
-          )
-        ) : (
-          <>
-            <div className="jobs">
-              {jobs.map((job) => (
-                <JobCard
-                  key={job.id}
-                  job={job}
-                  onEdit={() => { setEditingJob(job); setShowForm(false); }}
-                  onDelete={() => setConfirmJob(job)}
-                />
-              ))}
-            </div>
-            {totalPages > 1 && (
-              <div className="pagination">
-                <button className="btn btn-ghost" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>← Prev</button>
-                <span>Page {page} of {totalPages}</span>
-                <button className="btn btn-ghost" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>Next →</button>
-              </div>
-            )}
-          </>
-        )}
+              {totalPages > 1 && (
+                <nav className="pagination" aria-label="Pages">
+                  <button className="btn btn-ghost btn-sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Previous</button>
+                  <span>Page {page} of {totalPages}</span>
+                  <button className="btn btn-ghost btn-sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>Next</button>
+                </nav>
+              )}
+            </>
+          )}
+        </section>
+
+        {/* Email intelligence (connect, sync, review) */}
+        <EmailPanel onJobsChanged={refresh} />
       </div>
 
       {/* Add / Edit modal */}
@@ -275,6 +351,6 @@ export default function DashboardPage() {
           onCancel={() => setConfirmJob(null)}
         />
       )}
-    </>
+    </AppShell>
   );
 }
