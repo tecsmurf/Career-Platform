@@ -255,13 +255,13 @@ h1 { font-family: var(--font-display); letter-spacing: -0.025em; }
   background:
     radial-gradient(600px 380px at 110% -10%, rgba(91, 140, 255, 0.35), transparent 65%),
     radial-gradient(500px 360px at -20% 110%, rgba(18, 161, 80, 0.16), transparent 65%),
-    var(--side-bg);
+    #0b1028;
 }
 .auth__story .brand { color: #fff; }
 .auth__story-body { max-width: 440px; }
 .auth__story h2 { font-family: var(--font-display); color: #fff; font-size: clamp(28px, 2.8vw, 38px); line-height: 1.15; letter-spacing: -0.03em; font-weight: 800; }
-.auth__points { list-style: none; display: grid; gap: 22px; margin-top: 36px; }
-.auth__points li { display: flex; gap: 14px; font-size: 14px; line-height: 1.55; }
+.auth__points { list-style: none; display: grid; gap: 12px; }
+.auth__points li { display: flex; align-items: center; gap: 12px; font-size: 14.5px; color: #d3dae8; }
 .auth__points b { display: block; color: #fff; font-weight: 600; font-size: 15px; margin-bottom: 2px; }
 .auth__point-ic { width: 36px; height: 36px; flex: none; border-radius: 10px; display: grid; place-items: center;
   background: rgba(255, 255, 255, 0.07); border: 1px solid rgba(255, 255, 255, 0.1); color: #9dbbff; }
@@ -771,6 +771,74 @@ h1 { font-family: var(--font-display); letter-spacing: -0.025em; }
 
 
 /* ============================================================
+   3D + motion (scenes, hero, tilt, deck)
+   ============================================================ */
+.scene { position: absolute; pointer-events: none; opacity: 0; transition: opacity 1.6s var(--ease);
+  -webkit-mask-image: radial-gradient(circle, #000 38%, transparent 68%); mask-image: radial-gradient(circle, #000 38%, transparent 68%); }
+.scene--in { opacity: 1; }
+.scene canvas { display: block; }
+
+.hero3d {
+  position: relative; overflow: hidden; isolation: isolate;
+  display: flex; align-items: center; min-height: 248px;
+  padding: 36px 40px; margin-bottom: 20px; border-radius: 18px;
+  background:
+    radial-gradient(520px 320px at 85% 40%, rgba(47, 69, 255, 0.38), transparent 70%),
+    radial-gradient(420px 260px at 0% 120%, rgba(255, 178, 30, 0.12), transparent 70%),
+    linear-gradient(160deg, #111a3a 0%, #0b1028 60%);
+  color: #fff;
+  box-shadow: 0 24px 48px -28px rgba(11, 16, 40, 0.7);
+}
+.hero3d::after { content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none; opacity: 0.5;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.09) 1px, transparent 1px); background-size: 22px 22px;
+  -webkit-mask-image: linear-gradient(90deg, #000, transparent 70%); mask-image: linear-gradient(90deg, #000, transparent 70%); }
+.hero3d__scene { right: -10px; top: 50%; width: 520px; height: 440px; transform: translateY(-50%); z-index: -1; }
+.hero3d__copy { position: relative; max-width: 600px; }
+.hero3d .eyebrow { color: #8ea0c8; }
+.hero3d h1 { color: #fff; font-size: clamp(28px, 3.2vw, 40px); font-weight: 800; margin-top: 6px; }
+.hero3d__name { background: linear-gradient(90deg, #9dbbff, #ffd38a); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.hero3d__sub { color: #b9c3d6; font-size: 15.5px; margin: 8px 0 22px; max-width: 520px; }
+.hero3d .btn-primary { background: #fff; color: #0b1028; box-shadow: 0 10px 30px -10px rgba(109, 155, 255, 0.7); }
+.hero3d .btn-primary:hover:not(:disabled) { background: #e9efff; color: #0b1028; }
+.hero3d .trust-chip { background: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.14); color: #dbe3f3; }
+.hero3d .trust-chip svg { color: #3ddc84; }
+.hero3d .trust-chip--off svg { color: #8ea0c8; }
+.hero3d .apply-head__chips { margin-top: 2px; }
+.hero3d--apply .hero3d__sub { margin-bottom: 18px; }
+
+/* Tilt (3D lean toward the pointer) */
+.tilt { perspective: 900px; }
+.tilt__inner { position: relative; will-change: transform; border-radius: 10px; }
+.tilt__glare { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; mix-blend-mode: soft-light; }
+
+/* Auth story: 3D scene + deck */
+.auth__scene { inset: -10% -30% auto auto; width: 720px; height: 720px; opacity: 0; }
+.auth__scene.scene--in { opacity: 0.55; }
+.auth__story > * { position: relative; }
+.auth__story > .scene { position: absolute; }
+.auth__accent { background: linear-gradient(90deg, #9dbbff, #ffd38a); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.deck { perspective: 1400px; margin: 36px 0 78px; }
+.deck__stack { position: relative; width: min(100%, 330px); height: 214px; margin-left: 34px; }
+.deck__card {
+  position: absolute; inset: 0; padding: 18px 20px; border-radius: 16px;
+  background: linear-gradient(160deg, #ffffff, #eef2fb); color: #101828;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 30px 50px -24px rgba(0, 0, 0, 0.7), 0 2px 0 rgba(255, 255, 255, 0.8) inset;
+  display: flex; flex-direction: column;
+}
+.deck__top { display: flex; align-items: center; justify-content: space-between; }
+.deck__status { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: var(--pill); font-size: 12px; font-weight: 600;
+  color: color-mix(in srgb, var(--badge-color) 55%, #101828); background: color-mix(in srgb, var(--badge-color) 16%, #fff); }
+.deck__status::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--badge-color); }
+.deck__role { font-family: var(--font-display); font-weight: 700; font-size: 17px; letter-spacing: -0.02em; margin-top: 14px; }
+.deck__co { font-size: 13.5px; color: #475467; }
+.deck__meta { display: flex; gap: 14px; margin-top: auto; font-size: 12.5px; color: #5d6779; }
+.deck__meta span { display: inline-flex; align-items: center; gap: 5px; }
+.deck__meta svg { width: 13px; height: 13px; }
+.deck__bar { height: 4px; border-radius: 4px; background: #e4e7ec; margin-top: 12px; overflow: hidden; }
+.deck__bar i { display: block; height: 100%; border-radius: 4px; }
+
+/* ============================================================
    Responsive
    ============================================================ */
 @media (max-width: 1180px) {
@@ -813,6 +881,11 @@ h1 { font-family: var(--font-display); letter-spacing: -0.025em; }
 }
 @media (max-width: 640px) {
   .page { padding: 20px 16px 40px; }
+  .hero3d { padding: 26px 20px; min-height: 0; border-radius: 16px; }
+  .hero3d__scene { right: -150px; top: -60px; transform: none; width: 380px; height: 320px; }
+  .hero3d__scene.scene--in { opacity: 0.75; }
+  .hero3d .btn { width: 100%; }
+
   .page-head { margin-bottom: 18px; }
   .page-head .btn { width: 100%; }
   .page-head__sub { font-size: 14px; }

@@ -10,6 +10,9 @@ import Pipeline from '../components/Pipeline';
 import EmailPanel from '../components/email/EmailPanel';
 import AppShell from '../components/AppShell';
 import { JobsGridSkeleton } from '../components/Skeleton';
+import SceneMount from '../components/three/SceneMount';
+import { CountUp, Reveal, Tilt, stagger, rise, EASE_OUT_EXPO } from '../components/motion';
+import { motion } from 'framer-motion';
 import { STATUSES, STATUS_LABEL } from '../constants';
 import { Search, Plus, AlertCircle, Briefcase, Close } from '../components/icons';
 
@@ -61,7 +64,7 @@ function Kpis({ stats }) {
       {items.map((k) => (
         <div key={k.label} className={`kpi ${k.tone ? `kpi--${k.tone}` : ''}`}>
           <dt>{k.label}</dt>
-          <dd>{k.value}</dd>
+          <dd><CountUp value={k.value} /></dd>
           {k.hint && <span className="kpi__hint">{k.hint}</span>}
         </div>
       ))}
@@ -194,25 +197,27 @@ export default function DashboardPage() {
   return (
     <AppShell>
       <div className="page">
-        <header className="page-head">
-          <div>
+        <header className="hero3d">
+          <SceneMount className="hero3d__scene" />
+          <motion.div className="hero3d__copy" initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.9, ease: EASE_OUT_EXPO }}>
             <p className="eyebrow">{today}</p>
-            <h1>{greeting()}, {firstName(user?.full_name)}</h1>
-            <p className="page-head__sub">
+            <h1>{greeting()}, <span className="hero3d__name">{firstName(user?.full_name)}</span></h1>
+            <p className="hero3d__sub">
               {hasAnyJobs
                 ? `You have ${(stats.applied || 0) + (stats.interview || 0)} applications in progress and ${stats.interview || 0} at interview stage.`
                 : 'Track every application, interview and offer in one place.'}
             </p>
-          </div>
-          <button className="btn btn-primary" onClick={openAdd}><Plus /> Add application</button>
+            <button className="btn btn-primary btn-lg" onClick={openAdd}><Plus /> Add application</button>
+          </motion.div>
         </header>
 
-        <section className="card overview" aria-label="Overview">
+        <Reveal as="section" className="card overview" aria-label="Overview">
           <Kpis stats={stats} />
           <Pipeline stats={stats} active={view === 'list' ? filter : 'all'} onSelect={selectFilter} />
-        </section>
+        </Reveal>
 
-        <section className="card tracker" aria-labelledby="apps-title">
+        <Reveal as="section" delay={0.08} className="card tracker" aria-labelledby="apps-title">
           <div className="tracker__head">
             <h2 id="apps-title" className="section-title">
               Applications {!loading && <span className="count-badge">{totalShown}</span>}
@@ -289,9 +294,13 @@ export default function DashboardPage() {
                       {col.length === 0
                         ? <p className="board__empty">No applications</p>
                         : col.map((job) => (
-                          <BoardCard key={job.id} job={job} busy={busyId === job.id}
-                            onEdit={() => { setEditingJob(job); setShowForm(false); }}
-                            onStatusChange={(st) => handleStatusChange(job, st)} />
+                          <motion.div key={job.id} layout="position" variants={rise} initial="hidden" animate="show">
+                            <Tilt max={6}>
+                              <BoardCard job={job} busy={busyId === job.id}
+                                onEdit={() => { setEditingJob(job); setShowForm(false); }}
+                                onStatusChange={(st) => handleStatusChange(job, st)} />
+                            </Tilt>
+                          </motion.div>
                         ))}
                     </div>
                   </section>
@@ -300,7 +309,7 @@ export default function DashboardPage() {
             </div>
           ) : (
             <>
-              <div className="job-list">
+              <motion.div className="job-list" variants={stagger} initial="hidden" animate="show" key={`${filter}-${page}-${search}`}>
                 {jobs.map((job) => (
                   <JobCard
                     key={job.id}
@@ -311,7 +320,7 @@ export default function DashboardPage() {
                     onStatusChange={(st) => handleStatusChange(job, st)}
                   />
                 ))}
-              </div>
+              </motion.div>
               {totalPages > 1 && (
                 <nav className="pagination" aria-label="Pages">
                   <button className="btn btn-ghost btn-sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Previous</button>
@@ -321,10 +330,10 @@ export default function DashboardPage() {
               )}
             </>
           )}
-        </section>
+        </Reveal>
 
         {/* Email intelligence (connect, sync, review) */}
-        <EmailPanel onJobsChanged={refresh} />
+        <Reveal delay={0.12}><EmailPanel onJobsChanged={refresh} /></Reveal>
       </div>
 
       {/* Add / Edit modal */}

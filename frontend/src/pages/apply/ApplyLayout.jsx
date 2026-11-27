@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import AppShell from '../../components/AppShell';
+import SceneMount from '../../components/three/SceneMount';
+import { EASE_OUT_EXPO } from '../../components/motion';
 import { applyAPI } from '../../api';
 import { Briefcase, CheckCircle, Inbox, Search, Shield, Sparkle, Edit, AlertCircle } from '../../components/icons';
 import './apply.css';
@@ -25,15 +28,16 @@ export default function ApplyLayout() {
     <AppShell>
       <div className="page">
         {!isDetail && (<>
-        <header className="page-head apply-head">
-          <div>
+        <header className="hero3d hero3d--apply">
+          <SceneMount className="hero3d__scene" lineColor="#ffd38a" />
+          <motion.div className="hero3d__copy" initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.9, ease: EASE_OUT_EXPO }}>
             <p className="eyebrow">Apply Assistant</p>
             <h1>Find the right roles. Apply with less effort.</h1>
-            <p className="page-head__sub">
+            <p className="hero3d__sub">
               See how well you fit each posting, then get a tailored resume, cover letter and answers drafted from your own
               experience. You review everything, and nothing is ever sent for you.
             </p>
-          </div>
           <div className="apply-head__chips">
             <span className="trust-chip"><Shield /> Nothing sent automatically</span>
             {status && (
@@ -43,6 +47,7 @@ export default function ApplyLayout() {
             )}
             <span className="trust-chip"><Briefcase /> Fit based only on your resume</span>
           </div>
+          </motion.div>
         </header>
 
         <nav className="tabs tabs--nav apply-tabs" aria-label="Apply Assistant sections">

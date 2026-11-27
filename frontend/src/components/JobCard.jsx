@@ -1,4 +1,6 @@
+import { motion } from 'framer-motion';
 import CompanyLogo from './CompanyLogo';
+import { rise } from './motion';
 import { STATUSES, STATUS_COLOR } from '../constants';
 import { Edit, Trash, MapPin, Money, Calendar, LinkIcon } from './icons';
 
@@ -41,7 +43,7 @@ export default function JobCard({ job, onEdit, onDelete, onStatusChange, busy })
   const date = formatDate(job.applied_date);
 
   return (
-    <article className="job-row" style={{ '--job-accent': STATUS_COLOR[job.status] }}>
+    <motion.article className="job-row" variants={rise} style={{ '--job-accent': STATUS_COLOR[job.status] }}>
       <CompanyLogo name={job.company} size={40} />
 
       <div className="job-row__main">
@@ -70,7 +72,7 @@ export default function JobCard({ job, onEdit, onDelete, onStatusChange, busy })
         <button className="icon-btn" onClick={onEdit} aria-label={`Edit ${job.position} at ${job.company}`} title="Edit"><Edit /></button>
         <button className="icon-btn danger" onClick={onDelete} aria-label={`Delete ${job.position} at ${job.company}`} title="Delete"><Trash /></button>
       </div>
-    </article>
+    </motion.article>
   );
 }
 
