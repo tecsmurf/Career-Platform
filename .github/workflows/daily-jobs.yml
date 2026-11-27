@@ -1,0 +1,39 @@
+name: Daily job feed
+
+# Adds 5 fresh job postings to every user's Postings list once a day.
+# Needs one repository secret: DATABASE_URL (the same value the backend uses on Render).
+on:
+  schedule:
+    - cron: "30 2 * * *" # every day at 02:30 UTC (08:00 IST)
+  workflow_dispatch: {} # "Run workflow" button for a manual run
+
+concurrency:
+  group: daily-job-feed
+  cancel-in-progress: false
+
+jobs:
+  feed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r requirements.txt
+      - name: Add today's jobs
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DAILY_FEED_BOARDS: ${{ vars.DAILY_FEED_BOARDS }}
+          DAILY_FEED_PER_USER: ${{ vars.DAILY_FEED_PER_USER || '5' }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::Add the DATABASE_URL repository secret (Settings > Secrets and variables > Actions)."
+            exit 1
+          fi
+          python -m app.jobs.daily_feed

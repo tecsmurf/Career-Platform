@@ -117,6 +117,13 @@ class Settings(BaseSettings):
     APPLY_DISCOVERY_COOLDOWN_SECONDS: int = 600   # per source
     APPLY_MAX_POSTINGS_PER_USER: int = 500
     APPLY_RESUME_MAX_BYTES: int = 5_000_000
+    # Daily job feed (app/jobs/daily_feed.py, run once a day by GitHub Actions):
+    # each user gets this many fresh postings from curated public job boards.
+    DAILY_FEED_ENABLED: bool = True
+    DAILY_FEED_PER_USER: int = 5
+    # Optional override of the curated boards: "provider:token:Company,..." e.g.
+    # "greenhouse:figma:Figma,lever:plaid:Plaid,ashby:notion:Notion". Empty = built-in list.
+    DAILY_FEED_BOARDS: str = ""
 
     # ---------------------------------------------------------------
     # Account email: verification codes + password reset (Brevo API)
