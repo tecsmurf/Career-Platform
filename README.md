@@ -327,6 +327,26 @@ Add a posting (https link or pasted text) ─┐            ┌─ follow a comp
   can be polished by the model — accepted only if it passes the guard — within a per-user daily and a global monthly
   budget enforced *before* each call (`APPLY_AI_*` settings). `APPLY_ENABLED=false` turns the whole feature off.
 
+## 📰 Daily Job Feed
+
+Every day each user gets **5 fresh job postings** in their Apply Assistant *Postings* list, read from
+curated public job boards (Greenhouse, Lever, Ashby — documented, unauthenticated APIs).
+
+- Picked for the user's profile first (target roles, target locations, remote), then the newest openings.
+- Spread across different companies, and never a posting the user already has.
+- Safe to re-run: a second run on the same UTC day adds nothing.
+- Analysed and matched like any board import (no AI calls, no extra outbound requests).
+
+**Schedule:** `.github/workflows/daily-jobs.yml` runs at 02:30 UTC (08:00 IST) daily, and can be run by
+hand from the Actions tab ("Run workflow"). It needs one repository secret: **`DATABASE_URL`**, the same
+value the backend uses on Render.
+
+**Run locally:** `cd backend && python -m app.jobs.daily_feed`
+
+**Settings** (env vars, or repository *variables* for the workflow): `DAILY_FEED_ENABLED` (default true),
+`DAILY_FEED_PER_USER` (default 5), `DAILY_FEED_BOARDS` to replace the built-in board list, e.g.
+`greenhouse:figma:Figma,lever:plaid:Plaid,ashby:notion:Notion`.
+
 ## ✉️ Email Verification & Password Reset
 
 Sign-up and password reset use **6-digit codes sent by email** through **Brevo's HTTPS API**
