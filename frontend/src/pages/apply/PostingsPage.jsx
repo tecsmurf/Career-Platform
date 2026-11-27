@@ -6,6 +6,8 @@ import {
   AlertCircle, AlertTriangle, Briefcase, CheckCircle, Clock, Inbox, LinkIcon, MapPin, Plus, Search, Sparkle,
 } from '../../components/icons';
 import { FitRing, Loading, ToneLabel } from './parts';
+import { motion } from 'framer-motion';
+import { CountUp, rise, stagger } from '../../components/motion';
 
 const PAGE_SIZE = 12;
 const SOURCE_LABEL = { manual: 'Pasted', url: 'Link', greenhouse: 'Greenhouse', lever: 'Lever', ashby: 'Ashby' };
@@ -27,7 +29,7 @@ function Overview({ data }) {
               <span className="stat__ic"><t.icon /></span>
               <span className="stat__label">{t.label}</span>
             </div>
-            <div className="stat__val">{t.value}</div>
+            <div className="stat__val"><CountUp value={t.value} /></div>
           </div>
         ))}
       </div>
@@ -136,9 +138,11 @@ function Intake({ onAdded }) {
   );
 }
 
+const MotionLink = motion.create(Link);
+
 function PostingCard({ p }) {
   return (
-    <Link to={`/apply/postings/${p.id}`} className="posting-card">
+    <MotionLink to={`/apply/postings/${p.id}`} className="posting-card" variants={rise}>
       <FitRing score={p.fit_score} />
       <div style={{ minWidth: 0 }}>
         <div className="posting-card__title">{p.title}</div>
@@ -154,7 +158,7 @@ function PostingCard({ p }) {
       <div className="posting-card__right">
         <ToneLabel score={p.fit_score} />
       </div>
-    </Link>
+    </MotionLink>
   );
 }
 
@@ -234,7 +238,7 @@ export default function PostingsPage() {
         </div>
       ) : (
         <>
-          <div className="posting-list">{rows.map((p) => <PostingCard key={p.id} p={p} />)}</div>
+          <motion.div className="posting-list" variants={stagger} initial="hidden" animate="show">{rows.map((p) => <PostingCard key={p.id} p={p} />)}</motion.div>
           {pages > 1 && (
             <div className="pagination">
               <button className="btn btn-ghost btn-sm" disabled={page <= 1} onClick={() => setPage((x) => x - 1)}>Previous</button>
